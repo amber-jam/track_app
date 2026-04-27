@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TrackFlow Pro</title>
-  <title>TrackFlow</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -12,11 +11,35 @@
 </head>
 <body>
   <main class="app-shell">
-    <header class="topbar card">
-      <p class="kicker">Track & Field Performance</p>
-      <h1>TrackFlow Pro</h1>
-      <p class="subtitle">Professional athlete tracking with meet + practice insights.</p>
+    <header class="hero card">
+      <div class="hero-overlay"></div>
+      <div class="hero-content">
+        <p class="kicker">Track & Field Performance</p>
+        <h1>TrackFlow Pro</h1>
+        <p class="subtitle">Professional tracking for meets and training.</p>
+      </div>
     </header>
+
+    <section class="card profile-card">
+      <div class="section-head">
+        <h2>Profiles</h2>
+        <p class="micro">Save your public profile links</p>
+      </div>
+      <form id="profileForm" class="form-grid">
+        <label>TFRRS Profile URL
+          <input id="tffrsUrl" type="url" placeholder="https://www.tfrrs.org/athletes/..." />
+        </label>
+        <label>MileSplit Profile URL
+          <input id="milesplitUrl" type="url" placeholder="https://www.milesplit.com/athletes/..." />
+        </label>
+        <button type="submit" class="small-btn">Save Profile Links</button>
+      </form>
+      <div class="quick-links">
+        <a id="openTffrs" class="chip" href="#" target="_blank" rel="noopener">Open TFRRS</a>
+        <a id="openMileSplit" class="chip" href="#" target="_blank" rel="noopener">Open MileSplit</a>
+      </div>
+      <p id="profileMessage" class="micro"></p>
+    </section>
 
     <section class="stats-grid" aria-live="polite">
       <article class="card stat-card">
@@ -36,97 +59,55 @@
 
     <section class="card">
       <div class="section-head">
-        <h2>Add Meet Performance</h2>
+        <h2>Add Entry</h2>
       </div>
-      <form id="meetForm" class="form-grid">
-        <label>Event
-      <p class="eyebrow">Track & Field</p>
-      <h1>TrackFlow</h1>
-      <p class="subtitle">Log meets. Chase personal records.</p>
-    </header>
 
-    <section class="pr-card card" aria-live="polite">
-      <div>
-        <p class="label">Current PR</p>
-        <p id="prEvent" class="pr-event">No event yet</p>
+      <div class="type-switch" role="tablist" aria-label="Entry type">
+        <button id="meetTypeBtn" class="type-btn active" type="button">Meet Performance</button>
+        <button id="practiceTypeBtn" class="type-btn" type="button">Practice / Weights</button>
       </div>
-      <div class="pr-result-wrap">
-        <p id="prResult" class="pr-result">—</p>
-        <p id="prDate" class="pr-date">Add performances to begin</p>
-      </div>
-    </section>
 
-    <section class="card form-card">
-      <h2>Add Performance</h2>
-      <form id="performanceForm">
-        <label>
-          Event
-          <select id="event" required>
-            <option value="">Choose event</option>
-            <option>100m</option>
-            <option>200m</option>
-            <option>400m</option>
-            <option>800m</option>
-            <option>1500m</option>
-            <option>3000m</option>
-            <option>5000m</option>
-            <option>Long Jump</option>
-            <option>High Jump</option>
-            <option>Triple Jump</option>
-            <option>Shot Put</option>
-          </select>
-        </label>
-        <label>Result
-          <input id="result" type="text" placeholder="10.91s / 6.84m" required />
-        </label>
+      <form id="entryForm" class="form-grid">
         <label>Date
-          <input id="meetDate" type="date" required />
+          <input id="entryDate" type="date" required />
         </label>
-        <button type="submit">Save Meet Result</button>
-      </form>
-    </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Add Practice / Weights</h2>
-      </div>
-      <form id="practiceForm" class="form-grid">
-        <label>Session
-          <input id="session" type="text" placeholder="Weights - lower body" required />
-        </label>
-        <label>Metric
-          <input id="metric" type="text" placeholder="Back squat" required />
-        </label>
-        <label>Value
-          <input id="metricValue" type="text" placeholder="275 x 5" required />
-        </label>
-        <label>Date
-          <input id="practiceDate" type="date" required />
-        </label>
-        <button type="submit">Save Practice Stat</button>
-      </form>
-    </section>
+        <div id="meetFields" class="field-group">
+          <label>Event
+            <select id="event" required>
+              <option value="">Choose event</option>
+              <option>100m</option>
+              <option>200m</option>
+              <option>400m</option>
+              <option>800m</option>
+              <option>1500m</option>
+              <option>3000m</option>
+              <option>5000m</option>
+              <option>Long Jump</option>
+              <option>High Jump</option>
+              <option>Triple Jump</option>
+              <option>Shot Put</option>
+            </select>
+          </label>
+          <label>Result
+            <input id="result" type="text" placeholder="10.91s / 6.84m" required />
+          </label>
+        </div>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Import Stats (CSV)</h2>
-        <p class="micro">TFRRS / MileSplit / Practice exports</p>
-      </div>
-      <form id="importForm" class="form-grid">
-        <label>Source
-          <select id="importSource" required>
-            <option value="">Choose source</option>
-            <option value="tffrs">TFRRS</option>
-            <option value="milesplit">MileSplit</option>
-            <option value="practice">Practice CSV</option>
-          </select>
-        </label>
-        <label>CSV file
-          <input id="importFile" type="file" accept=".csv,text/csv" required />
-        </label>
-        <button type="submit">Import CSV</button>
+        <div id="practiceFields" class="field-group hidden">
+          <label>Session
+            <input id="session" type="text" placeholder="Weights - lower body" />
+          </label>
+          <label>Metric
+            <input id="metric" type="text" placeholder="Back squat" />
+          </label>
+          <label>Value
+            <input id="metricValue" type="text" placeholder="275 x 5" />
+          </label>
+        </div>
+
+        <button type="submit" id="saveEntryBtn" class="small-btn">Save Meet Result</button>
       </form>
-      <p id="importMessage" class="micro"></p>
     </section>
 
     <section class="card">
@@ -162,45 +143,6 @@
       </div>
       <ul id="practiceFeed" class="feed"></ul>
       <p id="practiceEmpty" class="micro">No practice entries yet.</p>
-            <option>5000m</option>
-            <option>Long Jump</option>
-            <option>High Jump</option>
-            <option>Shot Put</option>
-          </select>
-        </label>
-
-        <label>
-          Result
-          <input id="result" type="text" placeholder="e.g. 11.42s or 6.74m" required />
-        </label>
-
-        <label>
-          Date
-          <input id="date" type="date" required />
-        </label>
-
-        <button type="submit">Save Performance</button>
-      </form>
-    </section>
-
-    <section class="card">
-      <div class="section-title-row">
-        <h2>Progress</h2>
-        <span class="muted">Last 8 entries</span>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="progressChart" width="320" height="180" aria-label="Performance progress chart"></canvas>
-      </div>
-      <p class="chart-note">Chart uses your recent entries. Lower bars indicate faster race times.</p>
-    </section>
-
-    <section class="card">
-      <div class="section-title-row">
-        <h2>Performance Feed</h2>
-        <button id="clearBtn" class="ghost" type="button">Clear All</button>
-      </div>
-      <ul id="feed" class="feed"></ul>
-      <p id="emptyState" class="empty">No performances yet. Add your first result above.</p>
     </section>
   </main>
 
