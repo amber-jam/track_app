@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TrackFlow Pro</title>
+  <title>TrackFlow</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -39,6 +40,27 @@
       </div>
       <form id="meetForm" class="form-grid">
         <label>Event
+      <p class="eyebrow">Track & Field</p>
+      <h1>TrackFlow</h1>
+      <p class="subtitle">Log meets. Chase personal records.</p>
+    </header>
+
+    <section class="pr-card card" aria-live="polite">
+      <div>
+        <p class="label">Current PR</p>
+        <p id="prEvent" class="pr-event">No event yet</p>
+      </div>
+      <div class="pr-result-wrap">
+        <p id="prResult" class="pr-result">—</p>
+        <p id="prDate" class="pr-date">Add performances to begin</p>
+      </div>
+    </section>
+
+    <section class="card form-card">
+      <h2>Add Performance</h2>
+      <form id="performanceForm">
+        <label>
+          Event
           <select id="event" required>
             <option value="">Choose event</option>
             <option>100m</option>
@@ -140,6 +162,45 @@
       </div>
       <ul id="practiceFeed" class="feed"></ul>
       <p id="practiceEmpty" class="micro">No practice entries yet.</p>
+            <option>5000m</option>
+            <option>Long Jump</option>
+            <option>High Jump</option>
+            <option>Shot Put</option>
+          </select>
+        </label>
+
+        <label>
+          Result
+          <input id="result" type="text" placeholder="e.g. 11.42s or 6.74m" required />
+        </label>
+
+        <label>
+          Date
+          <input id="date" type="date" required />
+        </label>
+
+        <button type="submit">Save Performance</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-title-row">
+        <h2>Progress</h2>
+        <span class="muted">Last 8 entries</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="progressChart" width="320" height="180" aria-label="Performance progress chart"></canvas>
+      </div>
+      <p class="chart-note">Chart uses your recent entries. Lower bars indicate faster race times.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-title-row">
+        <h2>Performance Feed</h2>
+        <button id="clearBtn" class="ghost" type="button">Clear All</button>
+      </div>
+      <ul id="feed" class="feed"></ul>
+      <p id="emptyState" class="empty">No performances yet. Add your first result above.</p>
     </section>
   </main>
 
