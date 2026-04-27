@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrackFlow Pro</title>
   <title>TrackFlow</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,6 +13,33 @@
 <body>
   <main class="app-shell">
     <header class="topbar card">
+      <p class="kicker">Track & Field Performance</p>
+      <h1>TrackFlow Pro</h1>
+      <p class="subtitle">Professional athlete tracking with meet + practice insights.</p>
+    </header>
+
+    <section class="stats-grid" aria-live="polite">
+      <article class="card stat-card">
+        <p class="stat-label">Entries</p>
+        <p id="totalEntries" class="stat-value">0</p>
+      </article>
+      <article class="card stat-card">
+        <p class="stat-label">Events Tracked</p>
+        <p id="eventCount" class="stat-value">0</p>
+      </article>
+      <article class="card stat-card pr-highlight">
+        <p class="stat-label">Top PR</p>
+        <p id="bestPR" class="stat-value red">—</p>
+        <p id="bestPREvent" class="micro">No results yet</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Add Meet Performance</h2>
+      </div>
+      <form id="meetForm" class="form-grid">
+        <label>Event
       <p class="eyebrow">Track & Field</p>
       <h1>TrackFlow</h1>
       <p class="subtitle">Log meets. Chase personal records.</p>
@@ -40,6 +68,100 @@
             <option>400m</option>
             <option>800m</option>
             <option>1500m</option>
+            <option>3000m</option>
+            <option>5000m</option>
+            <option>Long Jump</option>
+            <option>High Jump</option>
+            <option>Triple Jump</option>
+            <option>Shot Put</option>
+          </select>
+        </label>
+        <label>Result
+          <input id="result" type="text" placeholder="10.91s / 6.84m" required />
+        </label>
+        <label>Date
+          <input id="meetDate" type="date" required />
+        </label>
+        <button type="submit">Save Meet Result</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Add Practice / Weights</h2>
+      </div>
+      <form id="practiceForm" class="form-grid">
+        <label>Session
+          <input id="session" type="text" placeholder="Weights - lower body" required />
+        </label>
+        <label>Metric
+          <input id="metric" type="text" placeholder="Back squat" required />
+        </label>
+        <label>Value
+          <input id="metricValue" type="text" placeholder="275 x 5" required />
+        </label>
+        <label>Date
+          <input id="practiceDate" type="date" required />
+        </label>
+        <button type="submit">Save Practice Stat</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Import Stats (CSV)</h2>
+        <p class="micro">TFRRS / MileSplit / Practice exports</p>
+      </div>
+      <form id="importForm" class="form-grid">
+        <label>Source
+          <select id="importSource" required>
+            <option value="">Choose source</option>
+            <option value="tffrs">TFRRS</option>
+            <option value="milesplit">MileSplit</option>
+            <option value="practice">Practice CSV</option>
+          </select>
+        </label>
+        <label>CSV file
+          <input id="importFile" type="file" accept=".csv,text/csv" required />
+        </label>
+        <button type="submit">Import CSV</button>
+      </form>
+      <p id="importMessage" class="micro"></p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Progress Chart</h2>
+        <select id="eventFilter" class="compact-select"></select>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="progressChart" width="320" height="180" aria-label="Performance chart"></canvas>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Event PR Board</h2>
+      </div>
+      <ul id="prBoard" class="grid-list"></ul>
+      <p id="prEmpty" class="micro">No meet performances added yet.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Meet Feed</h2>
+      </div>
+      <ul id="meetFeed" class="feed"></ul>
+      <p id="meetEmpty" class="micro">No meet results yet.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Practice Feed</h2>
+        <button id="clearAll" class="ghost" type="button">Clear All Data</button>
+      </div>
+      <ul id="practiceFeed" class="feed"></ul>
+      <p id="practiceEmpty" class="micro">No practice entries yet.</p>
             <option>5000m</option>
             <option>Long Jump</option>
             <option>High Jump</option>
