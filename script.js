@@ -18,6 +18,7 @@ const metricInput = document.getElementById('metric');
 const metricValueInput = document.getElementById('metricValue');
 
 const profileForm = document.getElementById('profileForm');
+const syncProfilesBtn = document.getElementById('syncProfilesBtn');
 const tffrsUrlInput = document.getElementById('tffrsUrl');
 const milesplitUrlInput = document.getElementById('milesplitUrl');
 const openTffrs = document.getElementById('openTffrs');
@@ -40,6 +41,7 @@ const prEmpty = document.getElementById('prEmpty');
 
 const canvas = document.getElementById('progressChart');
 const ctx = canvas.getContext('2d');
+const chartTooltip = document.getElementById('chartTooltip');
 
 const today = new Date().toISOString().split('T')[0];
 entryDateInput.value = today;
@@ -47,6 +49,7 @@ entryDateInput.value = today;
 let entryType = 'meet';
 let entries = loadData();
 let profiles = loadProfiles();
+let chartPoints = [];
 
 render();
 renderProfiles();
@@ -56,6 +59,9 @@ meetTypeBtn.addEventListener('click', () => setEntryMode('meet'));
 practiceTypeBtn.addEventListener('click', () => setEntryMode('practice'));
 
 eventFilter.addEventListener('change', renderChart);
+canvas.addEventListener('mousemove', onChartHover);
+canvas.addEventListener('mouseleave', () => chartTooltip.classList.add('hidden'));
+canvas.addEventListener('click', onChartClick);
 
 profileForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -66,6 +72,31 @@ profileForm.addEventListener('submit', (event) => {
   localStorage.setItem('trackflow_profiles', JSON.stringify(profiles));
   profileMessage.textContent = 'Profile links saved.';
   renderProfiles();
+});
+
+syncProfilesBtn.addEventListener('click', async () => {
+  profileMessage.textContent = 'Syncing profile data...';
+  const syncedEntries = [];
+
+  try {
+    if (profiles.tffrs) syncedEntries.push(...await syncSiteEntries('tffrs', profiles.tffrs));
+    if (profiles.milesplit) syncedEntries.push(...await syncSiteEntries('milesplit', profiles.milesplit));
+
+    if (!syncedEntries.length) {
+      profileMessage.textContent = 'No meet results were found during sync.';
+      return;
+    }
+
+    const existingKeys = new Set(entries.filter((entry) => entry.type === 'meet').map((entry) => entryKey(entry)));
+    const deduped = syncedEntries.filter((entry) => !existingKeys.has(entryKey(entry)));
+
+    entries = [...deduped, ...entries];
+    persist();
+    render();
+    profileMessage.textContent = `Synced ${deduped.length} new meet results.`;
+  } catch {
+    profileMessage.textContent = 'Unable to sync profile data right now. Try again later.';
+  }
 });
 
 entryForm.addEventListener('submit', (event) => {
@@ -235,7 +266,7 @@ function renderPRBoard() {
 
     const a = parseNumeric(entry.result);
     const b = parseNumeric(current.result);
-    if (!Number.isNaN(a) && (Number.isNaN(b) || a < b)) byEvent.set(entry.event, entry);
+    if (isBetterMark(entry.event, a, b)) byEvent.set(entry.event, entry);
   });
 
   const prList = [...byEvent.values()].sort((a, b) => a.event.localeCompare(b.event));
@@ -256,7 +287,7 @@ function renderPRBoard() {
         <span class="red">PR</span>
       </div>
       <p class="feed-result red">${entry.result}</p>
-      <p class="micro">${formatDate(entry.date)}</p>
+      <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}</p>
     `;
     prBoard.appendChild(li);
   });
@@ -274,17 +305,18 @@ function renderFeeds() {
   practiceEmpty.hidden = practiceEntries.length > 0;
 
   meetEntries.forEach((entry) => {
-    meetFeed.appendChild(feedItem(`
+    meetFeed.appendChild(feedItem(entry.id, `
       <div class="feed-head">
         <span>${entry.event}</span>
         <span>${formatDate(entry.date)}</span>
       </div>
       <p class="feed-result">${entry.result}</p>
+      <p class="micro">${entry.source.toUpperCase()}</p>
     `));
   });
 
   practiceEntries.forEach((entry) => {
-    practiceFeed.appendChild(feedItem(`
+    practiceFeed.appendChild(feedItem(entry.id, `
       <div class="feed-head">
         <span>${entry.session}</span>
         <span>${formatDate(entry.date)}</span>
@@ -294,9 +326,10 @@ function renderFeeds() {
   });
 }
 
-function feedItem(content) {
+function feedItem(id, content) {
   const li = document.createElement('li');
   li.className = 'feed-item';
+  li.id = `entry-${id}`;
   li.innerHTML = content;
   return li;
 }
@@ -311,40 +344,60 @@ function renderChart() {
   const points = [...filtered]
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .slice(-8)
-    .map((entry) => parseNumeric(entry.result))
-    .filter((point) => !Number.isNaN(point));
+    .map((entry) => ({
+      entry,
+      value: parseNumeric(entry.result),
+    }))
+    .filter((point) => !Number.isNaN(point.value));
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  chartPoints = [];
   if (!points.length) {
     drawChartMessage('No numeric meet data for selected event.');
     return;
   }
 
-  const min = Math.min(...points);
-  const max = Math.max(...points);
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
   const range = max - min || 1;
 
-  const left = 10;
-  const bottom = canvas.height - 16;
-  const h = canvas.height - 30;
-  const barGap = 8;
-  const w = (canvas.width - left * 2 - barGap * (points.length - 1)) / points.length;
+  const left = 14;
+  const right = canvas.width - 14;
+  const top = 20;
+  const bottom = canvas.height - 20;
+  const xStep = points.length === 1 ? 0 : (right - left) / (points.length - 1);
 
-  points.forEach((value, index) => {
-    const normalized = (value - min) / range;
-    const barHeight = 22 + normalized * (h - 22);
-    const x = left + index * (w + barGap);
-    const y = bottom - barHeight;
+  chartPoints = points.map((point, index) => {
+    const normalized = (point.value - min) / range;
+    return {
+      x: left + xStep * index,
+      y: bottom - normalized * (bottom - top),
+      value: point.value,
+      entry: point.entry,
+    };
+  });
 
-    ctx.fillStyle = index === points.length - 1 ? '#d91515' : '#b9bec7';
-    roundedRect(ctx, x, y, w, barHeight, 6);
+  ctx.strokeStyle = '#b9bec7';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  chartPoints.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+
+  chartPoints.forEach((point, index) => {
+    ctx.beginPath();
+    ctx.fillStyle = index === chartPoints.length - 1 ? '#d91515' : '#8e96a3';
+    ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
     ctx.fill();
   });
 
   ctx.fillStyle = '#61666d';
   ctx.font = '12px Inter';
   ctx.fillText(`PR ${min.toFixed(2)}`, 10, 12);
-  ctx.fillText(`Latest ${points.at(-1).toFixed(2)}`, canvas.width - 84, 12);
+  ctx.fillText(`Latest ${values.at(-1).toFixed(2)}`, canvas.width - 84, 12);
 }
 
 function drawChartMessage(message) {
@@ -360,10 +413,21 @@ function findGlobalPR(meetEntries) {
     if (!best) return current;
     const currentValue = parseNumeric(current.result);
     const bestValue = parseNumeric(best.result);
-    if (Number.isNaN(currentValue)) return best;
-    if (Number.isNaN(bestValue) || currentValue < bestValue) return current;
+    if (isBetterMark(current.event, currentValue, bestValue)) return current;
     return best;
   }, null);
+}
+
+function isBetterMark(eventName, candidateValue, baselineValue) {
+  if (Number.isNaN(candidateValue)) return false;
+  if (Number.isNaN(baselineValue)) return true;
+  const isField = isFieldEvent(eventName);
+  return isField ? candidateValue > baselineValue : candidateValue < baselineValue;
+}
+
+function isFieldEvent(eventName) {
+  const name = String(eventName || '').toLowerCase();
+  return ['long jump', 'triple jump', 'high jump', 'shot put'].some((event) => name.includes(event));
 }
 
 function parseNumeric(value) {
@@ -387,4 +451,84 @@ function roundedRect(context, x, y, width, height, radius) {
   context.arcTo(x, y + height, x, y, radius);
   context.arcTo(x, y, x + width, y, radius);
   context.closePath();
+}
+
+function onChartHover(event) {
+  if (!chartPoints.length) return;
+  const point = nearestPoint(event);
+  if (!point) return;
+
+  chartTooltip.textContent = `${point.entry.event}: ${point.entry.result} (${formatDate(point.entry.date)})`;
+  chartTooltip.classList.remove('hidden');
+  chartTooltip.style.left = `${point.x}px`;
+  chartTooltip.style.top = `${point.y}px`;
+}
+
+function onChartClick(event) {
+  if (!chartPoints.length) return;
+  const point = nearestPoint(event);
+  if (!point) return;
+  const target = document.getElementById(`entry-${point.entry.id}`);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function nearestPoint(mouseEvent) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (mouseEvent.clientX - rect.left) * scaleX;
+  const y = (mouseEvent.clientY - rect.top) * scaleY;
+
+  let candidate = null;
+  let minDistance = Number.POSITIVE_INFINITY;
+  chartPoints.forEach((point) => {
+    const dx = point.x - x;
+    const dy = point.y - y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < minDistance) {
+      minDistance = distance;
+      candidate = point;
+    }
+  });
+  return minDistance <= 20 ? candidate : null;
+}
+
+async function syncSiteEntries(source, profileUrl) {
+  const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(profileUrl)}`;
+  const response = await fetch(proxiedUrl);
+  if (!response.ok) return [];
+  const html = await response.text();
+
+  // Heuristic parsing for common result rows. This works best on public profile tables.
+  const rows = [...html.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)].map((match) => match[1]);
+  return rows
+    .map((row) => {
+      const text = row.replace(/<[^>]+>/g, '|').replace(/\s+/g, ' ').trim();
+      const parts = text.split('|').map((part) => part.trim()).filter(Boolean);
+      const date = parts.find((part) => /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(part));
+      const event = parts.find((part) => /(m\b|jump|put|hurdles|relay)/i.test(part));
+      const result = parts.find((part) => /\d/.test(part) && /(:|\.)/.test(part) || /m$|ft/i.test(part));
+      if (!date || !event || !result) return null;
+
+      return {
+        id: crypto.randomUUID(),
+        type: 'meet',
+        source,
+        event,
+        result,
+        date: normalizeImportedDate(date),
+        createdAt: Date.now(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeImportedDate(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return today;
+  return parsed.toISOString().split('T')[0];
+}
+
+function entryKey(entry) {
+  return `${entry.type}|${entry.event || entry.session}|${entry.result || entry.value}|${entry.date}`;
 }

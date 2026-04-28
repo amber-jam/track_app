@@ -33,6 +33,7 @@
           <input id="milesplitUrl" type="url" placeholder="https://www.milesplit.com/athletes/..." />
         </label>
         <button type="submit" class="small-btn">Save Profile Links</button>
+        <button id="syncProfilesBtn" type="button" class="small-btn ghost">Sync Meet Results</button>
       </form>
       <div class="quick-links">
         <a id="openTffrs" class="chip" href="#" target="_blank" rel="noopener">Open TFRRS</a>
@@ -117,6 +118,7 @@
       </div>
       <div class="chart-wrap">
         <canvas id="progressChart" width="320" height="180" aria-label="Performance chart"></canvas>
+        <div id="chartTooltip" class="chart-tooltip hidden"></div>
       </div>
     </section>
 
