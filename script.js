@@ -1,0 +1,534 @@
+const STORAGE_KEY = 'trackflow_pro_data_v3';
+
+const entryForm = document.getElementById('entryForm');
+const clearAllBtn = document.getElementById('clearAll');
+
+const meetTypeBtn = document.getElementById('meetTypeBtn');
+const practiceTypeBtn = document.getElementById('practiceTypeBtn');
+const meetFields = document.getElementById('meetFields');
+const practiceFields = document.getElementById('practiceFields');
+const saveEntryBtn = document.getElementById('saveEntryBtn');
+
+const eventInput = document.getElementById('event');
+const resultInput = document.getElementById('result');
+const entryDateInput = document.getElementById('entryDate');
+
+const sessionInput = document.getElementById('session');
+const metricInput = document.getElementById('metric');
+const metricValueInput = document.getElementById('metricValue');
+
+const profileForm = document.getElementById('profileForm');
+const syncProfilesBtn = document.getElementById('syncProfilesBtn');
+const tffrsUrlInput = document.getElementById('tffrsUrl');
+const milesplitUrlInput = document.getElementById('milesplitUrl');
+const openTffrs = document.getElementById('openTffrs');
+const openMileSplit = document.getElementById('openMileSplit');
+const profileMessage = document.getElementById('profileMessage');
+
+const totalEntries = document.getElementById('totalEntries');
+const eventCount = document.getElementById('eventCount');
+const bestPR = document.getElementById('bestPR');
+const bestPREvent = document.getElementById('bestPREvent');
+const eventFilter = document.getElementById('eventFilter');
+
+const meetFeed = document.getElementById('meetFeed');
+const practiceFeed = document.getElementById('practiceFeed');
+const meetEmpty = document.getElementById('meetEmpty');
+const practiceEmpty = document.getElementById('practiceEmpty');
+
+const prBoard = document.getElementById('prBoard');
+const prEmpty = document.getElementById('prEmpty');
+
+const canvas = document.getElementById('progressChart');
+const ctx = canvas.getContext('2d');
+const chartTooltip = document.getElementById('chartTooltip');
+
+const today = new Date().toISOString().split('T')[0];
+entryDateInput.value = today;
+
+let entryType = 'meet';
+let entries = loadData();
+let profiles = loadProfiles();
+let chartPoints = [];
+
+render();
+renderProfiles();
+setEntryMode('meet');
+
+meetTypeBtn.addEventListener('click', () => setEntryMode('meet'));
+practiceTypeBtn.addEventListener('click', () => setEntryMode('practice'));
+
+eventFilter.addEventListener('change', renderChart);
+canvas.addEventListener('mousemove', onChartHover);
+canvas.addEventListener('mouseleave', () => chartTooltip.classList.add('hidden'));
+canvas.addEventListener('click', onChartClick);
+
+profileForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  profiles = {
+    tffrs: tffrsUrlInput.value.trim(),
+    milesplit: milesplitUrlInput.value.trim(),
+  };
+  localStorage.setItem('trackflow_profiles', JSON.stringify(profiles));
+  profileMessage.textContent = 'Profile links saved.';
+  renderProfiles();
+});
+
+syncProfilesBtn.addEventListener('click', async () => {
+  profileMessage.textContent = 'Syncing profile data...';
+  const syncedEntries = [];
+
+  try {
+    if (profiles.tffrs) syncedEntries.push(...await syncSiteEntries('tffrs', profiles.tffrs));
+    if (profiles.milesplit) syncedEntries.push(...await syncSiteEntries('milesplit', profiles.milesplit));
+
+    if (!syncedEntries.length) {
+      profileMessage.textContent = 'No meet results were found during sync.';
+      return;
+    }
+
+    const existingKeys = new Set(entries.filter((entry) => entry.type === 'meet').map((entry) => entryKey(entry)));
+    const deduped = syncedEntries.filter((entry) => !existingKeys.has(entryKey(entry)));
+
+    entries = [...deduped, ...entries];
+    persist();
+    render();
+    profileMessage.textContent = `Synced ${deduped.length} new meet results.`;
+  } catch {
+    profileMessage.textContent = 'Unable to sync profile data right now. Try again later.';
+  }
+});
+
+entryForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  if (entryType === 'meet') {
+    if (!eventInput.value || !resultInput.value.trim()) {
+      return;
+    }
+
+    entries.unshift({
+      id: crypto.randomUUID(),
+      type: 'meet',
+      source: 'manual',
+      event: eventInput.value,
+      result: resultInput.value.trim(),
+      date: entryDateInput.value,
+      createdAt: Date.now(),
+    });
+  } else {
+    if (!sessionInput.value.trim() || !metricInput.value.trim() || !metricValueInput.value.trim()) {
+      return;
+    }
+
+    entries.unshift({
+      id: crypto.randomUUID(),
+      type: 'practice',
+      source: 'manual',
+      session: sessionInput.value.trim(),
+      metric: metricInput.value.trim(),
+      value: metricValueInput.value.trim(),
+      date: entryDateInput.value,
+      createdAt: Date.now(),
+    });
+  }
+
+  persist();
+  clearTypeFields();
+  entryDateInput.value = today;
+  render();
+});
+
+clearAllBtn.addEventListener('click', () => {
+  entries = [];
+  persist();
+  render();
+});
+
+function setEntryMode(mode) {
+  entryType = mode;
+  const isMeet = mode === 'meet';
+
+  meetTypeBtn.classList.toggle('active', isMeet);
+  practiceTypeBtn.classList.toggle('active', !isMeet);
+
+  meetFields.classList.toggle('hidden', !isMeet);
+  practiceFields.classList.toggle('hidden', isMeet);
+
+  eventInput.required = isMeet;
+  resultInput.required = isMeet;
+  sessionInput.required = !isMeet;
+  metricInput.required = !isMeet;
+  metricValueInput.required = !isMeet;
+
+  saveEntryBtn.textContent = isMeet ? 'Save Meet Result' : 'Save Practice Set';
+}
+
+function clearTypeFields() {
+  eventInput.value = '';
+  resultInput.value = '';
+  sessionInput.value = '';
+  metricInput.value = '';
+  metricValueInput.value = '';
+}
+
+function loadData() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persist() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+
+function loadProfiles() {
+  const raw = localStorage.getItem('trackflow_profiles');
+  if (!raw) return { tffrs: '', milesplit: '' };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      tffrs: parsed.tffrs || '',
+      milesplit: parsed.milesplit || '',
+    };
+  } catch {
+    return { tffrs: '', milesplit: '' };
+  }
+}
+
+function renderProfiles() {
+  tffrsUrlInput.value = profiles.tffrs;
+  milesplitUrlInput.value = profiles.milesplit;
+
+  openTffrs.href = profiles.tffrs || '#';
+  openMileSplit.href = profiles.milesplit || '#';
+
+  openTffrs.style.pointerEvents = profiles.tffrs ? 'auto' : 'none';
+  openMileSplit.style.pointerEvents = profiles.milesplit ? 'auto' : 'none';
+  openTffrs.style.opacity = profiles.tffrs ? '1' : '0.45';
+  openMileSplit.style.opacity = profiles.milesplit ? '1' : '0.45';
+}
+
+function render() {
+  renderSummary();
+  renderEventFilter();
+  renderPRBoard();
+  renderFeeds();
+  renderChart();
+}
+
+function renderSummary() {
+  const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  totalEntries.textContent = String(entries.length);
+  eventCount.textContent = String(new Set(meetEntries.map((entry) => entry.event)).size);
+
+  const top = findGlobalPR(meetEntries);
+  if (!top) {
+    bestPR.textContent = '—';
+    bestPREvent.textContent = 'No results yet';
+    return;
+  }
+  bestPR.textContent = top.result;
+  bestPREvent.textContent = `${top.event} • ${formatDate(top.date)}`;
+}
+
+function renderEventFilter() {
+  const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  const events = ['All events', ...new Set(meetEntries.map((entry) => entry.event))];
+  const selected = eventFilter.value;
+
+  eventFilter.innerHTML = '';
+  events.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    eventFilter.appendChild(option);
+  });
+
+  if (events.includes(selected)) eventFilter.value = selected;
+}
+
+function renderPRBoard() {
+  const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  const byEvent = new Map();
+
+  meetEntries.forEach((entry) => {
+    const current = byEvent.get(entry.event);
+    if (!current) {
+      byEvent.set(entry.event, entry);
+      return;
+    }
+
+    const a = parseNumeric(entry.result);
+    const b = parseNumeric(current.result);
+    if (isBetterMark(entry.event, a, b)) byEvent.set(entry.event, entry);
+  });
+
+  const prList = [...byEvent.values()].sort((a, b) => a.event.localeCompare(b.event));
+  prBoard.innerHTML = '';
+
+  if (!prList.length) {
+    prEmpty.hidden = false;
+    return;
+  }
+
+  prEmpty.hidden = true;
+  prList.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'pr-item';
+    li.innerHTML = `
+      <div class="pr-top">
+        <span>${entry.event}</span>
+        <span class="red">PR</span>
+      </div>
+      <p class="feed-result red">${entry.result}</p>
+      <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}</p>
+    `;
+    prBoard.appendChild(li);
+  });
+}
+
+function renderFeeds() {
+  const sorted = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt - a.createdAt);
+  const meetEntries = sorted.filter((entry) => entry.type === 'meet');
+  const practiceEntries = sorted.filter((entry) => entry.type === 'practice');
+
+  meetFeed.innerHTML = '';
+  practiceFeed.innerHTML = '';
+
+  meetEmpty.hidden = meetEntries.length > 0;
+  practiceEmpty.hidden = practiceEntries.length > 0;
+
+  meetEntries.forEach((entry) => {
+    meetFeed.appendChild(feedItem(entry.id, `
+      <div class="feed-head">
+        <span>${entry.event}</span>
+        <span>${formatDate(entry.date)}</span>
+      </div>
+      <p class="feed-result">${entry.result}</p>
+      <p class="micro">${entry.source.toUpperCase()}</p>
+    `));
+  });
+
+  practiceEntries.forEach((entry) => {
+    practiceFeed.appendChild(feedItem(entry.id, `
+      <div class="feed-head">
+        <span>${entry.session}</span>
+        <span>${formatDate(entry.date)}</span>
+      </div>
+      <p class="feed-result">${entry.metric}: ${entry.value}</p>
+    `));
+  });
+}
+
+function feedItem(id, content) {
+  const li = document.createElement('li');
+  li.className = 'feed-item';
+  li.id = `entry-${id}`;
+  li.innerHTML = content;
+  return li;
+}
+
+function renderChart() {
+  const filter = eventFilter.value;
+  const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  const filtered = filter && filter !== 'All events'
+    ? meetEntries.filter((entry) => entry.event === filter)
+    : meetEntries;
+
+  const points = [...filtered]
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(-8)
+    .map((entry) => ({
+      entry,
+      value: parseNumeric(entry.result),
+    }))
+    .filter((point) => !Number.isNaN(point.value));
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  chartPoints = [];
+  if (!points.length) {
+    drawChartMessage('No numeric meet data for selected event.');
+    return;
+  }
+
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const left = 14;
+  const right = canvas.width - 14;
+  const top = 20;
+  const bottom = canvas.height - 20;
+  const xStep = points.length === 1 ? 0 : (right - left) / (points.length - 1);
+
+  chartPoints = points.map((point, index) => {
+    const normalized = (point.value - min) / range;
+    return {
+      x: left + xStep * index,
+      y: bottom - normalized * (bottom - top),
+      value: point.value,
+      entry: point.entry,
+    };
+  });
+
+  ctx.strokeStyle = '#b9bec7';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  chartPoints.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+
+  chartPoints.forEach((point, index) => {
+    ctx.beginPath();
+    ctx.fillStyle = index === chartPoints.length - 1 ? '#d91515' : '#8e96a3';
+    ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#61666d';
+  ctx.font = '12px Inter';
+  ctx.fillText(`PR ${min.toFixed(2)}`, 10, 12);
+  ctx.fillText(`Latest ${values.at(-1).toFixed(2)}`, canvas.width - 84, 12);
+}
+
+function drawChartMessage(message) {
+  ctx.fillStyle = '#61666d';
+  ctx.font = '13px Inter';
+  ctx.textAlign = 'center';
+  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+  ctx.textAlign = 'left';
+}
+
+function findGlobalPR(meetEntries) {
+  return meetEntries.reduce((best, current) => {
+    if (!best) return current;
+    const currentValue = parseNumeric(current.result);
+    const bestValue = parseNumeric(best.result);
+    if (isBetterMark(current.event, currentValue, bestValue)) return current;
+    return best;
+  }, null);
+}
+
+function isBetterMark(eventName, candidateValue, baselineValue) {
+  if (Number.isNaN(candidateValue)) return false;
+  if (Number.isNaN(baselineValue)) return true;
+  const isField = isFieldEvent(eventName);
+  return isField ? candidateValue > baselineValue : candidateValue < baselineValue;
+}
+
+function isFieldEvent(eventName) {
+  const name = String(eventName || '').toLowerCase();
+  return ['long jump', 'triple jump', 'high jump', 'shot put'].some((event) => name.includes(event));
+}
+
+function parseNumeric(value) {
+  const match = String(value).match(/\d+(\.\d+)?/);
+  return match ? Number(match[0]) : NaN;
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function roundedRect(context, x, y, width, height, radius) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
+}
+
+function onChartHover(event) {
+  if (!chartPoints.length) return;
+  const point = nearestPoint(event);
+  if (!point) return;
+
+  chartTooltip.textContent = `${point.entry.event}: ${point.entry.result} (${formatDate(point.entry.date)})`;
+  chartTooltip.classList.remove('hidden');
+  chartTooltip.style.left = `${point.x}px`;
+  chartTooltip.style.top = `${point.y}px`;
+}
+
+function onChartClick(event) {
+  if (!chartPoints.length) return;
+  const point = nearestPoint(event);
+  if (!point) return;
+  const target = document.getElementById(`entry-${point.entry.id}`);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function nearestPoint(mouseEvent) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (mouseEvent.clientX - rect.left) * scaleX;
+  const y = (mouseEvent.clientY - rect.top) * scaleY;
+
+  let candidate = null;
+  let minDistance = Number.POSITIVE_INFINITY;
+  chartPoints.forEach((point) => {
+    const dx = point.x - x;
+    const dy = point.y - y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < minDistance) {
+      minDistance = distance;
+      candidate = point;
+    }
+  });
+  return minDistance <= 20 ? candidate : null;
+}
+
+async function syncSiteEntries(source, profileUrl) {
+  const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(profileUrl)}`;
+  const response = await fetch(proxiedUrl);
+  if (!response.ok) return [];
+  const html = await response.text();
+
+  // Heuristic parsing for common result rows. This works best on public profile tables.
+  const rows = [...html.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)].map((match) => match[1]);
+  return rows
+    .map((row) => {
+      const text = row.replace(/<[^>]+>/g, '|').replace(/\s+/g, ' ').trim();
+      const parts = text.split('|').map((part) => part.trim()).filter(Boolean);
+      const date = parts.find((part) => /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(part));
+      const event = parts.find((part) => /(m\b|jump|put|hurdles|relay)/i.test(part));
+      const result = parts.find((part) => /\d/.test(part) && /(:|\.)/.test(part) || /m$|ft/i.test(part));
+      if (!date || !event || !result) return null;
+
+      return {
+        id: crypto.randomUUID(),
+        type: 'meet',
+        source,
+        event,
+        result,
+        date: normalizeImportedDate(date),
+        createdAt: Date.now(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeImportedDate(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return today;
+  return parsed.toISOString().split('T')[0];
+}
+
+function entryKey(entry) {
+  return `${entry.type}|${entry.event || entry.session}|${entry.result || entry.value}|${entry.date}`;
+}
