@@ -94,8 +94,8 @@ syncProfilesBtn.addEventListener('click', async () => {
     persist();
     render();
     profileMessage.textContent = `Synced ${deduped.length} new meet results.`;
-  } catch {
-    profileMessage.textContent = 'Unable to sync profile data right now. Try again later.';
+  } catch (error) {
+    profileMessage.textContent = error?.message || 'Unable to sync profile data right now. Try again later.';
   }
 });
 
@@ -494,10 +494,15 @@ function nearestPoint(mouseEvent) {
 }
 
 async function syncSiteEntries(source, profileUrl) {
-  const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(profileUrl)}`;
+  const proxiedUrl = `/api/profile-proxy?url=${encodeURIComponent(profileUrl)}`;
   const response = await fetch(proxiedUrl);
-  if (!response.ok) return [];
-  const html = await response.text();
+  if (!response.ok) {
+    const message = await response.json().catch(() => ({}));
+    throw new Error(message.error || `Sync failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const html = payload.html || '';
 
   // Heuristic parsing for common result rows. This works best on public profile tables.
   const rows = [...html.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)].map((match) => match[1]);
