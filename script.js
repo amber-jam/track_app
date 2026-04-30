@@ -54,6 +54,7 @@ let chartPoints = [];
 render();
 renderProfiles();
 setEntryMode('meet');
+configureCanvas();
 
 meetTypeBtn.addEventListener('click', () => setEntryMode('meet'));
 practiceTypeBtn.addEventListener('click', () => setEntryMode('practice'));
@@ -62,6 +63,10 @@ eventFilter.addEventListener('change', renderChart);
 canvas.addEventListener('mousemove', onChartHover);
 canvas.addEventListener('mouseleave', () => chartTooltip.classList.add('hidden'));
 canvas.addEventListener('click', onChartClick);
+window.addEventListener('resize', () => {
+  configureCanvas();
+  renderChart();
+});
 
 profileForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -335,6 +340,8 @@ function feedItem(id, content) {
 }
 
 function renderChart() {
+  const width = canvas.clientWidth || 320;
+  const height = canvas.clientHeight || 180;
   const filter = eventFilter.value;
   const meetEntries = entries.filter((entry) => entry.type === 'meet');
   const filtered = filter && filter !== 'All events'
@@ -350,7 +357,7 @@ function renderChart() {
     }))
     .filter((point) => !Number.isNaN(point.value));
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, width, height);
   chartPoints = [];
   if (!points.length) {
     drawChartMessage('No numeric meet data for selected event.');
@@ -363,9 +370,9 @@ function renderChart() {
   const range = max - min || 1;
 
   const left = 14;
-  const right = canvas.width - 14;
+  const right = width - 14;
   const top = 20;
-  const bottom = canvas.height - 20;
+  const bottom = height - 20;
   const xStep = points.length === 1 ? 0 : (right - left) / (points.length - 1);
 
   chartPoints = points.map((point, index) => {
@@ -397,14 +404,27 @@ function renderChart() {
   ctx.fillStyle = '#61666d';
   ctx.font = '12px Inter';
   ctx.fillText(`PR ${min.toFixed(2)}`, 10, 12);
-  ctx.fillText(`Latest ${values.at(-1).toFixed(2)}`, canvas.width - 84, 12);
+  ctx.fillText(`Latest ${values.at(-1).toFixed(2)}`, width - 84, 12);
+}
+
+function configureCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const cssWidth = Math.max(320, Math.floor(rect.width || 320));
+  const cssHeight = Math.max(180, Math.floor(rect.height || 180));
+  canvas.width = Math.floor(cssWidth * dpr);
+  canvas.height = Math.floor(cssHeight * dpr);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
 }
 
 function drawChartMessage(message) {
+  const width = canvas.clientWidth || 320;
+  const height = canvas.clientHeight || 180;
   ctx.fillStyle = '#61666d';
   ctx.font = '13px Inter';
   ctx.textAlign = 'center';
-  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+  ctx.fillText(message, width / 2, height / 2);
   ctx.textAlign = 'left';
 }
 
@@ -474,10 +494,8 @@ function onChartClick(event) {
 
 function nearestPoint(mouseEvent) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const x = (mouseEvent.clientX - rect.left) * scaleX;
-  const y = (mouseEvent.clientY - rect.top) * scaleY;
+  const x = mouseEvent.clientX - rect.left;
+  const y = mouseEvent.clientY - rect.top;
 
   let candidate = null;
   let minDistance = Number.POSITIVE_INFINITY;
@@ -504,17 +522,19 @@ async function syncSiteEntries(source, profileUrl) {
   const payload = await response.json();
   const html = payload.html || '';
 
-  // Heuristic parsing for common result rows. This works best on public profile tables.
-  const rows = [...html.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)].map((match) => match[1]);
-  return rows
-    .map((row) => {
-      const text = row.replace(/<[^>]+>/g, '|').replace(/\s+/g, ' ').trim();
-      const parts = text.split('|').map((part) => part.trim()).filter(Boolean);
-      const date = parts.find((part) => /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(part));
-      const event = parts.find((part) => /(m\b|jump|put|hurdles|relay)/i.test(part));
-      const result = parts.find((part) => /\d/.test(part) && /(:|\.)/.test(part) || /m$|ft/i.test(part));
-      if (!date || !event || !result) return null;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const rows = [...doc.querySelectorAll('tr')];
+  const extracted = rows
+    .map((row) => [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || '')))
+    .filter((cells) => cells.length >= 2);
 
+  const mapped = extracted
+    .map((cells) => {
+      const date = cells.find((part) => isDateLike(part));
+      const event = cells.find((part) => isEventLike(part));
+      const result = cells.find((part) => isResultLike(part));
+      if (!date || !event || !result) return null;
       return {
         id: crypto.randomUUID(),
         type: 'meet',
@@ -526,6 +546,8 @@ async function syncSiteEntries(source, profileUrl) {
       };
     })
     .filter(Boolean);
+
+  return mapped;
 }
 
 function normalizeImportedDate(value) {
@@ -536,4 +558,22 @@ function normalizeImportedDate(value) {
 
 function entryKey(entry) {
   return `${entry.type}|${entry.event || entry.session}|${entry.result || entry.value}|${entry.date}`;
+}
+
+function cleanText(value) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function isDateLike(value) {
+  return /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(value)
+    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b/i.test(value);
+}
+
+function isEventLike(value) {
+  return /\b(\d{2,4}m|hurdles?|relay|jump|put|vault|steeple|mile|discus|javelin|hammer)\b/i.test(value);
+}
+
+function isResultLike(value) {
+  return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(value)
+    || /^\d+(?:\.\d+)?$/.test(value);
 }
