@@ -524,28 +524,8 @@ async function syncSiteEntries(source, profileUrl) {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const rows = [...doc.querySelectorAll('tr')];
-  const extracted = rows
-    .map((row) => [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || '')))
-    .filter((cells) => cells.length >= 2);
-
-  const mapped = extracted
-    .map((cells) => {
-      const date = cells.find((part) => isDateLike(part));
-      const event = cells.find((part) => isEventLike(part));
-      const result = cells.find((part) => isResultLike(part));
-      if (!date || !event || !result) return null;
-      return {
-        id: crypto.randomUUID(),
-        type: 'meet',
-        source,
-        event,
-        result,
-        date: normalizeImportedDate(date),
-        createdAt: Date.now(),
-      };
-    })
-    .filter(Boolean);
+  const tables = [...doc.querySelectorAll('table')];
+  const mapped = tables.flatMap((table) => parseResultTable(table, source));
 
   return mapped;
 }
@@ -576,4 +556,42 @@ function isEventLike(value) {
 function isResultLike(value) {
   return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(value)
     || /^\d+(?:\.\d+)?$/.test(value);
+}
+
+function parseResultTable(table, source) {
+  const rows = [...table.querySelectorAll('tr')]
+    .map((row) => [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || '')))
+    .filter((cells) => cells.some(Boolean));
+  if (!rows.length) return [];
+
+  const header = rows[0].map((cell) => cell.toLowerCase());
+  const eventIndex = findIndex(header, /(event|discipline)/i);
+  const resultIndex = findIndex(header, /(mark|result|time|performance)/i);
+  const dateIndex = findIndex(header, /(date)/i);
+  const dataRows = rows.slice(1);
+
+  return dataRows
+    .map((cells) => {
+      const date = dateIndex >= 0 ? cells[dateIndex] : cells.find((part) => isDateLike(part));
+      const event = eventIndex >= 0 ? cells[eventIndex] : cells.find((part) => isEventLike(part));
+      const result = resultIndex >= 0 ? cells[resultIndex] : cells.find((part) => isResultLike(part));
+      if (!date || !event || !result) return null;
+      if (!isEventLike(event)) return null;
+      if (isResultLike(event)) return null;
+
+      return {
+        id: crypto.randomUUID(),
+        type: 'meet',
+        source,
+        event,
+        result,
+        date: normalizeImportedDate(date),
+        createdAt: Date.now(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function findIndex(cells, pattern) {
+  return cells.findIndex((cell) => pattern.test(cell));
 }
