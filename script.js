@@ -24,6 +24,11 @@ const milesplitUrlInput = document.getElementById('milesplitUrl');
 const openTffrs = document.getElementById('openTffrs');
 const openMileSplit = document.getElementById('openMileSplit');
 const profileMessage = document.getElementById('profileMessage');
+const athleteNameInput = document.getElementById('athleteName');
+const athleteSchoolInput = document.getElementById('athleteSchool');
+const athleteClassInput = document.getElementById('athleteClass');
+const athleteGroupInput = document.getElementById('athleteGroup');
+const saveAthleteBtn = document.getElementById('saveAthleteBtn');
 
 const totalEntries = document.getElementById('totalEntries');
 const eventCount = document.getElementById('eventCount');
@@ -51,6 +56,7 @@ let entryType = 'meet';
 let entries = loadData();
 let profiles = loadProfiles();
 let preferences = loadPreferences();
+let athleteProfile = loadAthleteProfile();
 let chartPoints = [];
 
 render();
@@ -84,6 +90,17 @@ profileForm.addEventListener('submit', (event) => {
   localStorage.setItem('trackflow_profiles', JSON.stringify(profiles));
   profileMessage.textContent = 'Profile links saved.';
   renderProfiles();
+});
+
+saveAthleteBtn.addEventListener('click', () => {
+  athleteProfile = {
+    name: athleteNameInput.value.trim(),
+    school: athleteSchoolInput.value.trim(),
+    classification: athleteClassInput.value.trim(),
+    eventGroup: athleteGroupInput.value.trim(),
+  };
+  localStorage.setItem('trackflow_athlete_profile', JSON.stringify(athleteProfile));
+  profileMessage.textContent = 'Athlete profile saved.';
 });
 
 syncProfilesBtn.addEventListener('click', async () => {
@@ -239,6 +256,10 @@ function renderProfiles() {
   openMileSplit.style.pointerEvents = profiles.milesplit ? 'auto' : 'none';
   openTffrs.style.opacity = profiles.tffrs ? '1' : '0.45';
   openMileSplit.style.opacity = profiles.milesplit ? '1' : '0.45';
+  athleteNameInput.value = athleteProfile.name || '';
+  athleteSchoolInput.value = athleteProfile.school || '';
+  athleteClassInput.value = athleteProfile.classification || '';
+  athleteGroupInput.value = athleteProfile.eventGroup || '';
 }
 
 function render() {
@@ -309,7 +330,8 @@ function renderPRBoard() {
   const byEvent = new Map();
 
   meetEntries.forEach((entry) => {
-    const eventKey = `${normalizeEventName(entry.event)}|${entry.season || 'all'}`;
+    const normalizedEvent = normalizeEventName(entry.event);
+    const eventKey = normalizedEvent;
     const current = byEvent.get(eventKey);
     if (!current) {
       byEvent.set(eventKey, entry);
@@ -332,7 +354,15 @@ function renderPRBoard() {
   }
 
   prEmpty.hidden = true;
-  prList.forEach((entry) => {
+  const grouped = groupEventsByCategory(prList);
+  Object.entries(grouped).forEach(([category, categoryEntries]) => {
+    if (!categoryEntries.length) return;
+    const heading = document.createElement('li');
+    heading.className = 'group-title';
+    heading.textContent = category;
+    prBoard.appendChild(heading);
+
+    categoryEntries.forEach((entry) => {
     const li = document.createElement('li');
     li.className = 'pr-item';
     li.innerHTML = `
@@ -344,6 +374,7 @@ function renderPRBoard() {
       <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}${entry.season ? ` • ${entry.season}` : ''}</p>
     `;
     prBoard.appendChild(li);
+    });
   });
 }
 
@@ -452,6 +483,30 @@ function renderChart() {
     else ctx.lineTo(point.x, point.y);
   });
   ctx.stroke();
+
+  // Personal best progression line.
+  const pbPoints = [];
+  let bestSoFar = null;
+  chartPoints.forEach((point) => {
+    if (bestSoFar === null || isBetterMark(point.entry.event, point.value, bestSoFar)) {
+      bestSoFar = point.value;
+    }
+    const normalized = (bestSoFar - min) / range;
+    pbPoints.push({
+      x: point.x,
+      y: bottom - normalized * (bottom - top),
+    });
+  });
+  ctx.strokeStyle = '#d91515';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  pbPoints.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
 
   chartPoints.forEach((point, index) => {
     ctx.beginPath();
@@ -594,6 +649,9 @@ async function syncSiteEntries(source, profileUrl) {
 function normalizeImportedDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return today;
+  const year = parsed.getUTCFullYear();
+  const currentYear = new Date().getUTCFullYear();
+  if (year < 1990 || year > currentYear + 1) return today;
   return parsed.toISOString().split('T')[0];
 }
 
@@ -713,6 +771,7 @@ function normalizeImportedEntry(entry) {
 
 function normalizeEventName(value) {
   const raw = String(value || '').toLowerCase();
+  if (raw.includes('4x') || raw.includes('relay')) return 'Relay';
   if (raw.includes('triple')) return 'Triple Jump';
   if (raw.includes('long jump')) return 'Long Jump';
   if (raw.includes('high jump')) return 'High Jump';
@@ -724,6 +783,9 @@ function normalizeEventName(value) {
   if (raw.match(/\b1500m\b/)) return '1500m';
   if (raw.match(/\b3000m\b/)) return '3000m';
   if (raw.match(/\b5000m\b/)) return '5000m';
+  if (raw.match(/\b60m\b/)) return '60m';
+  if (raw.match(/\b100\s*meters?\b/)) return '100m';
+  if (raw.match(/\b200\s*meters?\b/)) return '200m';
   return value;
 }
 
@@ -746,9 +808,45 @@ function isPlausibleMark(eventName, value) {
     '1500m': [200, 500],
     '3000m': [400, 900],
     '5000m': [700, 1500],
+    '60m': [6, 12],
   };
   const range = limits[event];
   return range ? value >= range[0] && value <= range[1] : true;
+}
+
+function groupEventsByCategory(entriesList) {
+  const categories = {
+    Jumps: [],
+    Sprints: [],
+    Throws: [],
+    Relays: [],
+    Other: [],
+  };
+  entriesList.forEach((entry) => {
+    const event = normalizeEventName(entry.event);
+    if (/jump/i.test(event)) categories.Jumps.push(entry);
+    else if (/shot|discus|javelin|hammer/i.test(event)) categories.Throws.push(entry);
+    else if (/relay|4x|4×/i.test(event)) categories.Relays.push(entry);
+    else if (/\b(60m|100m|200m|400m|800m|1500m|3000m|5000m)\b/i.test(event)) categories.Sprints.push(entry);
+    else categories.Other.push(entry);
+  });
+  return categories;
+}
+
+function loadAthleteProfile() {
+  const raw = localStorage.getItem('trackflow_athlete_profile');
+  if (!raw) return { name: '', school: '', classification: '', eventGroup: '' };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      name: parsed.name || '',
+      school: parsed.school || '',
+      classification: parsed.classification || '',
+      eventGroup: parsed.eventGroup || '',
+    };
+  } catch {
+    return { name: '', school: '', classification: '', eventGroup: '' };
+  }
 }
 
 function detectSeason(table, cells) {
