@@ -712,7 +712,7 @@ function parseFallbackFromText(text, source) {
       continue;
     }
     if (!activeDate) continue;
-    const event = normalizeEventName(line.split(/\s+/)[0]);
+    const event = extractEventFromLine(line);
     const result = extractResultFromLine(line);
     if (!event || !isEventLike(event) || !result) continue;
 
@@ -735,6 +735,33 @@ function extractResultFromLine(line) {
   const match = line.match(/(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+\.\d+\s*m|\d+\.\d+|\d+\s*m)/i);
   if (!match) return '';
   return match[1].trim();
+}
+
+function extractEventFromLine(line) {
+  const text = cleanText(line);
+  const explicitPatterns = [
+    /triple jump/i,
+    /long jump/i,
+    /high jump/i,
+    /shot put/i,
+    /\b60m\b/i,
+    /\b100m\b/i,
+    /\b200m\b/i,
+    /\b400m\b/i,
+    /\b800m\b/i,
+    /\b1500m\b/i,
+    /\b1600m\b/i,
+    /\b3000m\b/i,
+    /\b3200m\b/i,
+    /\b5000m\b/i,
+    /hurdles?/i,
+    /relay/i,
+  ];
+
+  const match = explicitPatterns.find((pattern) => pattern.test(text));
+  if (!match) return '';
+  const extracted = text.match(match);
+  return extracted ? normalizeEventName(extracted[0]) : '';
 }
 
 function keepBestPerEventBySeason(list) {
