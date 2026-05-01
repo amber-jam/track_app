@@ -622,6 +622,7 @@ async function syncSiteEntries(source, profileUrl) {
   if (!mapped.length) {
     mapped = parseFallbackFromText(doc.body?.innerText || '', source);
   }
+  mapped = keepBestPerEventBySeason(mapped);
   return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
 }
 
@@ -663,12 +664,13 @@ function parseResultTable(table, source) {
     .filter((cells) => cells.some(Boolean));
   if (!rows.length) return [];
 
-  const headerRowIndex = rows.findIndex((cells) => cells.some((cell) => /(event|discipline|mark|result|performance|date)/i.test(cell)));
+  const headerRowIndex = rows.findIndex((cells) => cells.some((cell) => /(event|discipline|mark|result|performance|date|wind)/i.test(cell)));
   const header = (headerRowIndex >= 0 ? rows[headerRowIndex] : rows[0]).map((cell) => cell.toLowerCase());
   const eventIndex = findIndex(header, /(event|discipline)/i);
   const resultIndex = findIndex(header, /(mark|result|time|performance)/i);
   const dateIndex = findIndex(header, /(date)/i);
-  const dataRows = rows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 1);
+  if (headerRowIndex < 0) return [];
+  const dataRows = rows.slice(headerRowIndex + 1);
 
   return dataRows
     .map((cells) => {
@@ -701,14 +703,18 @@ function findIndex(cells, pattern) {
 function parseFallbackFromText(text, source) {
   const lines = text.split('\n').map((line) => cleanText(line)).filter(Boolean);
   const imported = [];
+  let activeDate = '';
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (!isDateLike(line)) continue;
-    const neighborhood = lines.slice(Math.max(0, index - 5), Math.min(lines.length, index + 6));
-    const event = neighborhood.find((item) => isEventLike(item) && !isResultLike(item) && !/^pr$/i.test(item));
-    const result = neighborhood.find((item) => isResultLike(item));
-    if (!event || !result) continue;
+    if (isDateLike(line) && /[a-z]{3,}\s+\d{1,2}|\/\d{2,4}/i.test(line)) {
+      activeDate = line;
+      continue;
+    }
+    if (!activeDate) continue;
+    const event = normalizeEventName(line.split(/\s+/)[0]);
+    const result = extractResultFromLine(line);
+    if (!event || !isEventLike(event) || !result) continue;
 
     imported.push({
       id: crypto.randomUUID(),
@@ -716,13 +722,37 @@ function parseFallbackFromText(text, source) {
       source,
       event,
       result,
-      date: normalizeImportedDate(line),
-      season: detectSeasonFromText(neighborhood.join(' ')),
+      date: normalizeImportedDate(activeDate),
+      season: detectSeasonFromText(line),
       createdAt: Date.now(),
     });
   }
 
   return dedupeImported(imported);
+}
+
+function extractResultFromLine(line) {
+  const match = line.match(/(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+\.\d+\s*m|\d+\.\d+|\d+\s*m)/i);
+  if (!match) return '';
+  return match[1].trim();
+}
+
+function keepBestPerEventBySeason(list) {
+  const bestMap = new Map();
+  list.forEach((entry) => {
+    const key = `${normalizeEventName(entry.event)}|${entry.season || ''}`;
+    const existing = bestMap.get(key);
+    if (!existing) {
+      bestMap.set(key, entry);
+      return;
+    }
+    const candidateValue = parseNumeric(entry.result);
+    const existingValue = parseNumeric(existing.result);
+    if (isBetterMark(entry.event, candidateValue, existingValue)) {
+      bestMap.set(key, entry);
+    }
+  });
+  return [...bestMap.values()];
 }
 
 function dedupeImported(list) {
