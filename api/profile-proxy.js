@@ -24,6 +24,7 @@ export default async function handler(req, res) {
   const timeout = setTimeout(() => controller.abort(), 12000);
 
   try {
+    console.log(`[profile-proxy] fetching: ${parsed.toString()}`);
     const upstream = await fetch(parsed.toString(), {
       method: 'GET',
       headers: {
@@ -35,12 +36,14 @@ export default async function handler(req, res) {
 
     clearTimeout(timeout);
 
+    console.log(`[profile-proxy] upstream status: ${upstream.status}`);
     if (!upstream.ok) {
       res.status(upstream.status).json({ error: `Upstream request failed with ${upstream.status}.` });
       return;
     }
 
     const html = await upstream.text();
+    console.log(`[profile-proxy] html length: ${html.length}`);
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600');
     res.status(200).json({ html });
   } catch (error) {

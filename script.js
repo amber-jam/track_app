@@ -544,7 +544,23 @@ function isFieldEvent(eventName) {
 }
 
 function parseNumeric(value) {
-  const match = String(value).match(/\d+(\.\d+)?/);
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return NaN;
+  if (/^(19|20)\d{2}$/.test(text)) return NaN;
+
+  const timeMatch = text.match(/^(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/);
+  if (timeMatch) {
+    return Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
+  }
+
+  const feetInchesMatch = text.match(/^(\d{1,2})-(\d{1,2}(?:\.\d+)?)$/);
+  if (feetInchesMatch) {
+    const feet = Number(feetInchesMatch[1]);
+    const inches = Number(feetInchesMatch[2]);
+    return feet * 0.3048 + inches * 0.0254;
+  }
+
+  const match = text.match(/\d+(\.\d+)?/);
   return match ? Number(match[0]) : NaN;
 }
 
@@ -618,6 +634,7 @@ async function syncSiteEntries(source, profileUrl) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const tables = [...doc.querySelectorAll('table')];
+  console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
   let mapped = tables.flatMap((table) => parseResultTable(table, source));
   if (!mapped.length) {
     mapped = parseFallbackFromText(doc.body?.innerText || '', source);
@@ -627,6 +644,7 @@ async function syncSiteEntries(source, profileUrl) {
 }
 
 function normalizeImportedDate(value) {
+  if (!isDateLike(String(value || ''))) return today;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return today;
   const year = parsed.getUTCFullYear();
@@ -653,9 +671,13 @@ function isEventLike(value) {
 }
 
 function isResultLike(value) {
-  if (/^(19|20)\d{2}$/.test(value.trim())) return false;
-  return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(value)
-    || /^\d+(?:\.\d+)?$/.test(value);
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return false;
+  if (/^(19|20)\d{2}$/.test(text)) return false;
+  if (/^\d{4}\s*(indoor|outdoor)?$/.test(text)) return false;
+  if (text.includes('outdoor') || text.includes('indoor')) return false;
+  return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d{1,2}-\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(text)
+    || /^\d+\.\d+$/.test(text);
 }
 
 function parseResultTable(table, source) {
