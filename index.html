@@ -23,7 +23,7 @@
     <section class="card profile-card">
       <div class="section-head">
         <h2>Profiles</h2>
-        <p class="micro">Save your public profile links</p>
+        <button id="clearAllTop" class="ghost" type="button">Clear All Data</button>
       </div>
       <form id="profileForm" class="form-grid">
         <label>TFRRS Profile URL
@@ -35,6 +35,11 @@
         <button type="submit" class="small-btn">Save Profile Links</button>
         <button id="syncProfilesBtn" type="button" class="small-btn ghost">Sync Meet Results</button>
       </form>
+      <label>Main Event
+        <select id="mainEventSelect">
+          <option value="">Auto (best overall)</option>
+        </select>
+      </label>
       <div class="quick-links">
         <a id="openTffrs" class="chip" href="#" target="_blank" rel="noopener">Open TFRRS</a>
         <a id="openMileSplit" class="chip" href="#" target="_blank" rel="noopener">Open MileSplit</a>
@@ -141,7 +146,6 @@
     <section class="card">
       <div class="section-head">
         <h2>Practice Feed</h2>
-        <button id="clearAll" class="ghost" type="button">Clear All Data</button>
       </div>
       <ul id="practiceFeed" class="feed"></ul>
       <p id="practiceEmpty" class="micro">No practice entries yet.</p>

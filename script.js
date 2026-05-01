@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'trackflow_pro_data_v3';
 
 const entryForm = document.getElementById('entryForm');
-const clearAllBtn = document.getElementById('clearAll');
+const clearAllBtn = document.getElementById('clearAllTop');
 
 const meetTypeBtn = document.getElementById('meetTypeBtn');
 const practiceTypeBtn = document.getElementById('practiceTypeBtn');
@@ -29,6 +29,7 @@ const totalEntries = document.getElementById('totalEntries');
 const eventCount = document.getElementById('eventCount');
 const bestPR = document.getElementById('bestPR');
 const bestPREvent = document.getElementById('bestPREvent');
+const mainEventSelect = document.getElementById('mainEventSelect');
 const eventFilter = document.getElementById('eventFilter');
 
 const meetFeed = document.getElementById('meetFeed');
@@ -49,6 +50,7 @@ entryDateInput.value = today;
 let entryType = 'meet';
 let entries = loadData();
 let profiles = loadProfiles();
+let preferences = loadPreferences();
 let chartPoints = [];
 
 render();
@@ -60,6 +62,11 @@ meetTypeBtn.addEventListener('click', () => setEntryMode('meet'));
 practiceTypeBtn.addEventListener('click', () => setEntryMode('practice'));
 
 eventFilter.addEventListener('change', renderChart);
+mainEventSelect.addEventListener('change', () => {
+  preferences.mainEvent = mainEventSelect.value;
+  persistPreferences();
+  renderSummary();
+});
 canvas.addEventListener('mousemove', onChartHover);
 canvas.addEventListener('mouseleave', () => chartTooltip.classList.add('hidden'));
 canvas.addEventListener('click', onChartClick);
@@ -206,6 +213,21 @@ function loadProfiles() {
   }
 }
 
+function loadPreferences() {
+  const raw = localStorage.getItem('trackflow_preferences');
+  if (!raw) return { mainEvent: '' };
+  try {
+    const parsed = JSON.parse(raw);
+    return { mainEvent: parsed.mainEvent || '' };
+  } catch {
+    return { mainEvent: '' };
+  }
+}
+
+function persistPreferences() {
+  localStorage.setItem('trackflow_preferences', JSON.stringify(preferences));
+}
+
 function renderProfiles() {
   tffrsUrlInput.value = profiles.tffrs;
   milesplitUrlInput.value = profiles.milesplit;
@@ -229,17 +251,41 @@ function render() {
 
 function renderSummary() {
   const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  const eventNames = [...new Set(meetEntries.map((entry) => entry.event))].sort();
   totalEntries.textContent = String(entries.length);
-  eventCount.textContent = String(new Set(meetEntries.map((entry) => entry.event)).size);
+  eventCount.textContent = String(eventNames.length);
+  renderMainEventOptions(eventNames);
 
-  const top = findGlobalPR(meetEntries);
+  const scopedEntries = preferences.mainEvent
+    ? meetEntries.filter((entry) => entry.event === preferences.mainEvent)
+    : meetEntries;
+  const top = findGlobalPR(scopedEntries);
   if (!top) {
     bestPR.textContent = '—';
     bestPREvent.textContent = 'No results yet';
     return;
   }
   bestPR.textContent = top.result;
-  bestPREvent.textContent = `${top.event} • ${formatDate(top.date)}`;
+  bestPREvent.textContent = `${top.event} • ${formatDate(top.date)}${preferences.mainEvent ? ' • Main Event' : ''}`;
+}
+
+function renderMainEventOptions(eventNames) {
+  const selected = preferences.mainEvent;
+  mainEventSelect.innerHTML = '<option value=\"\">Auto (best overall)</option>';
+  eventNames.forEach((eventName) => {
+    const option = document.createElement('option');
+    option.value = eventName;
+    option.textContent = eventName;
+    mainEventSelect.appendChild(option);
+  });
+
+  if (eventNames.includes(selected)) {
+    mainEventSelect.value = selected;
+  } else if (selected) {
+    preferences.mainEvent = '';
+    persistPreferences();
+    mainEventSelect.value = '';
+  }
 }
 
 function renderEventFilter() {
@@ -535,7 +581,10 @@ async function syncSiteEntries(source, profileUrl) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const tables = [...doc.querySelectorAll('table')];
-  const mapped = tables.flatMap((table) => parseResultTable(table, source));
+  let mapped = tables.flatMap((table) => parseResultTable(table, source));
+  if (!mapped.length) {
+    mapped = parseFallbackFromText(doc.body?.innerText || '', source);
+  }
 
   return mapped;
 }
@@ -607,6 +656,42 @@ function parseResultTable(table, source) {
 
 function findIndex(cells, pattern) {
   return cells.findIndex((cell) => pattern.test(cell));
+}
+
+function parseFallbackFromText(text, source) {
+  const lines = text.split('\n').map((line) => cleanText(line)).filter(Boolean);
+  const imported = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!isDateLike(line)) continue;
+    const neighborhood = lines.slice(Math.max(0, index - 5), Math.min(lines.length, index + 6));
+    const event = neighborhood.find((item) => isEventLike(item) && !isResultLike(item) && !/^pr$/i.test(item));
+    const result = neighborhood.find((item) => isResultLike(item));
+    if (!event || !result) continue;
+
+    imported.push({
+      id: crypto.randomUUID(),
+      type: 'meet',
+      source,
+      event,
+      result,
+      date: normalizeImportedDate(line),
+      createdAt: Date.now(),
+    });
+  }
+
+  return dedupeImported(imported);
+}
+
+function dedupeImported(list) {
+  const seen = new Set();
+  return list.filter((entry) => {
+    const key = entryKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function attachEntryActionHandlers() {
