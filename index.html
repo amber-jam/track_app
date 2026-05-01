@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrackFlow Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero card">
+      <div class="hero-overlay"></div>
+      <div class="hero-content">
+        <p class="kicker">Track & Field Performance</p>
+        <h1>TrackFlow Pro</h1>
+        <p class="subtitle">Professional tracking for meets and training.</p>
+      </div>
+    </header>
+
+    <section class="card profile-card">
+      <div class="section-head">
+        <h2>Profiles</h2>
+        <p class="micro">Save your public profile links</p>
+      </div>
+      <form id="profileForm" class="form-grid">
+        <label>TFRRS Profile URL
+          <input id="tffrsUrl" type="url" placeholder="https://www.tfrrs.org/athletes/..." />
+        </label>
+        <label>MileSplit Profile URL
+          <input id="milesplitUrl" type="url" placeholder="https://www.milesplit.com/athletes/..." />
+        </label>
+        <button type="submit" class="small-btn">Save Profile Links</button>
+        <button id="syncProfilesBtn" type="button" class="small-btn ghost">Sync Meet Results</button>
+      </form>
+      <div class="quick-links">
+        <a id="openTffrs" class="chip" href="#" target="_blank" rel="noopener">Open TFRRS</a>
+        <a id="openMileSplit" class="chip" href="#" target="_blank" rel="noopener">Open MileSplit</a>
+      </div>
+      <p id="profileMessage" class="micro"></p>
+    </section>
+
+    <section class="stats-grid" aria-live="polite">
+      <article class="card stat-card">
+        <p class="stat-label">Entries</p>
+        <p id="totalEntries" class="stat-value">0</p>
+      </article>
+      <article class="card stat-card">
+        <p class="stat-label">Events Tracked</p>
+        <p id="eventCount" class="stat-value">0</p>
+      </article>
+      <article class="card stat-card pr-highlight">
+        <p class="stat-label">Top PR</p>
+        <p id="bestPR" class="stat-value red">—</p>
+        <p id="bestPREvent" class="micro">No results yet</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Add Entry</h2>
+      </div>
+
+      <div class="type-switch" role="tablist" aria-label="Entry type">
+        <button id="meetTypeBtn" class="type-btn active" type="button">Meet Performance</button>
+        <button id="practiceTypeBtn" class="type-btn" type="button">Practice / Weights</button>
+      </div>
+
+      <form id="entryForm" class="form-grid">
+        <label>Date
+          <input id="entryDate" type="date" required />
+        </label>
+
+        <div id="meetFields" class="field-group">
+          <label>Event
+            <select id="event" required>
+              <option value="">Choose event</option>
+              <option>100m</option>
+              <option>200m</option>
+              <option>400m</option>
+              <option>800m</option>
+              <option>1500m</option>
+              <option>3000m</option>
+              <option>5000m</option>
+              <option>Long Jump</option>
+              <option>High Jump</option>
+              <option>Triple Jump</option>
+              <option>Shot Put</option>
+            </select>
+          </label>
+          <label>Result
+            <input id="result" type="text" placeholder="10.91s / 6.84m" required />
+          </label>
+        </div>
+
+        <div id="practiceFields" class="field-group hidden">
+          <label>Session
+            <input id="session" type="text" placeholder="Weights - lower body" />
+          </label>
+          <label>Metric
+            <input id="metric" type="text" placeholder="Back squat" />
+          </label>
+          <label>Value
+            <input id="metricValue" type="text" placeholder="275 x 5" />
+          </label>
+        </div>
+
+        <button type="submit" id="saveEntryBtn" class="small-btn">Save Meet Result</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Progress Chart</h2>
+        <select id="eventFilter" class="compact-select"></select>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="progressChart" width="320" height="180" aria-label="Performance chart"></canvas>
+        <div id="chartTooltip" class="chart-tooltip hidden"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Event PR Board</h2>
+      </div>
+      <ul id="prBoard" class="grid-list"></ul>
+      <p id="prEmpty" class="micro">No meet performances added yet.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Meet Feed</h2>
+      </div>
+      <ul id="meetFeed" class="feed"></ul>
+      <p id="meetEmpty" class="micro">No meet results yet.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Practice Feed</h2>
+        <button id="clearAll" class="ghost" type="button">Clear All Data</button>
+      </div>
+      <ul id="practiceFeed" class="feed"></ul>
+      <p id="practiceEmpty" class="micro">No practice entries yet.</p>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
