@@ -669,8 +669,7 @@ function parseResultTable(table, source) {
   const eventIndex = findIndex(header, /(event|discipline)/i);
   const resultIndex = findIndex(header, /(mark|result|time|performance)/i);
   const dateIndex = findIndex(header, /(date)/i);
-  if (headerRowIndex < 0) return [];
-  const dataRows = rows.slice(headerRowIndex + 1);
+  const dataRows = rows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 1);
 
   return dataRows
     .map((cells) => {
@@ -739,6 +738,10 @@ function extractResultFromLine(line) {
 
 function extractEventFromLine(line) {
   const text = cleanText(line);
+  const abbreviationMatch = text.match(/\b(LJ|TJ|HJ|SP|PV|DT|JT|HT|60|100|200|400|800|1500|1600|3000|3200|5000)\b/i);
+  if (abbreviationMatch) {
+    return normalizeEventName(abbreviationMatch[0]);
+  }
   const explicitPatterns = [
     /triple jump/i,
     /long jump/i,
@@ -810,6 +813,24 @@ function normalizeImportedEntry(entry) {
 function normalizeEventName(value) {
   const raw = String(value || '').toLowerCase();
   if (raw.includes('4x') || raw.includes('relay')) return 'Relay';
+  if (raw === 'lj') return 'Long Jump';
+  if (raw === 'tj') return 'Triple Jump';
+  if (raw === 'hj') return 'High Jump';
+  if (raw === 'sp') return 'Shot Put';
+  if (raw === 'pv') return 'Pole Vault';
+  if (raw === 'jt') return 'Javelin';
+  if (raw === 'dt') return 'Discus';
+  if (raw === 'ht') return 'Hammer';
+  if (raw === '60') return '60m';
+  if (raw === '100') return '100m';
+  if (raw === '200') return '200m';
+  if (raw === '400') return '400m';
+  if (raw === '800') return '800m';
+  if (raw === '1500') return '1500m';
+  if (raw === '1600') return '1600m';
+  if (raw === '3000') return '3000m';
+  if (raw === '3200') return '3200m';
+  if (raw === '5000') return '5000m';
   if (raw.includes('triple')) return 'Triple Jump';
   if (raw.includes('long jump')) return 'Long Jump';
   if (raw.includes('high jump')) return 'High Jump';
