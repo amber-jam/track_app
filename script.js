@@ -317,6 +317,10 @@ function renderFeeds() {
       </div>
       <p class="feed-result">${entry.result}</p>
       <p class="micro">${entry.source.toUpperCase()}</p>
+      <div class="entry-actions">
+        <button type="button" class="ghost action-btn" data-action="edit" data-id="${entry.id}">Edit</button>
+        <button type="button" class="ghost action-btn" data-action="delete" data-id="${entry.id}">Delete</button>
+      </div>
     `));
   });
 
@@ -327,8 +331,14 @@ function renderFeeds() {
         <span>${formatDate(entry.date)}</span>
       </div>
       <p class="feed-result">${entry.metric}: ${entry.value}</p>
+      <div class="entry-actions">
+        <button type="button" class="ghost action-btn" data-action="edit" data-id="${entry.id}">Edit</button>
+        <button type="button" class="ghost action-btn" data-action="delete" data-id="${entry.id}">Delete</button>
+      </div>
     `));
   });
+
+  attachEntryActionHandlers();
 }
 
 function feedItem(id, content) {
@@ -554,6 +564,7 @@ function isEventLike(value) {
 }
 
 function isResultLike(value) {
+  if (/^(19|20)\d{2}$/.test(value.trim())) return false;
   return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(value)
     || /^\d+(?:\.\d+)?$/.test(value);
 }
@@ -564,20 +575,22 @@ function parseResultTable(table, source) {
     .filter((cells) => cells.some(Boolean));
   if (!rows.length) return [];
 
-  const header = rows[0].map((cell) => cell.toLowerCase());
+  const headerRowIndex = rows.findIndex((cells) => cells.some((cell) => /(event|discipline|mark|result|performance|date)/i.test(cell)));
+  const header = (headerRowIndex >= 0 ? rows[headerRowIndex] : rows[0]).map((cell) => cell.toLowerCase());
   const eventIndex = findIndex(header, /(event|discipline)/i);
   const resultIndex = findIndex(header, /(mark|result|time|performance)/i);
   const dateIndex = findIndex(header, /(date)/i);
-  const dataRows = rows.slice(1);
+  const dataRows = rows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 1);
 
   return dataRows
     .map((cells) => {
       const date = dateIndex >= 0 ? cells[dateIndex] : cells.find((part) => isDateLike(part));
-      const event = eventIndex >= 0 ? cells[eventIndex] : cells.find((part) => isEventLike(part));
+      const event = eventIndex >= 0 ? cells[eventIndex] : cells.find((part) => isEventLike(part) && !/^pr$/i.test(part));
       const result = resultIndex >= 0 ? cells[resultIndex] : cells.find((part) => isResultLike(part));
       if (!date || !event || !result) return null;
       if (!isEventLike(event)) return null;
       if (isResultLike(event)) return null;
+      if (/^pr$/i.test(event)) return null;
 
       return {
         id: crypto.randomUUID(),
@@ -594,4 +607,55 @@ function parseResultTable(table, source) {
 
 function findIndex(cells, pattern) {
   return cells.findIndex((cell) => pattern.test(cell));
+}
+
+function attachEntryActionHandlers() {
+  document.querySelectorAll('.action-btn').forEach((button) => {
+    button.addEventListener('click', onEntryActionClick);
+  });
+}
+
+function onEntryActionClick(event) {
+  const action = event.currentTarget.dataset.action;
+  const id = event.currentTarget.dataset.id;
+  const entry = entries.find((item) => item.id === id);
+  if (!entry) return;
+
+  if (action === 'delete') {
+    entries = entries.filter((item) => item.id !== id);
+    persist();
+    render();
+    return;
+  }
+
+  if (action === 'edit') {
+    if (entry.type === 'meet') {
+      const nextEvent = window.prompt('Event', entry.event);
+      if (!nextEvent) return;
+      const nextResult = window.prompt('Result', entry.result);
+      if (!nextResult) return;
+      const nextDate = window.prompt('Date (YYYY-MM-DD)', entry.date);
+      if (!nextDate) return;
+      entry.event = nextEvent.trim();
+      entry.result = nextResult.trim();
+      entry.date = nextDate.trim();
+    } else {
+      const nextSession = window.prompt('Session', entry.session);
+      if (!nextSession) return;
+      const nextMetric = window.prompt('Metric', entry.metric);
+      if (!nextMetric) return;
+      const nextValue = window.prompt('Value', entry.value);
+      if (!nextValue) return;
+      const nextDate = window.prompt('Date (YYYY-MM-DD)', entry.date);
+      if (!nextDate) return;
+      entry.session = nextSession.trim();
+      entry.metric = nextMetric.trim();
+      entry.value = nextValue.trim();
+      entry.date = nextDate.trim();
+    }
+
+    entry.createdAt = Date.now();
+    persist();
+    render();
+  }
 }
