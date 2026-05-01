@@ -305,19 +305,22 @@ function renderEventFilter() {
 }
 
 function renderPRBoard() {
-  const meetEntries = entries.filter((entry) => entry.type === 'meet');
+  const meetEntries = entries.filter((entry) => entry.type === 'meet' && !isRelayEvent(entry.event));
   const byEvent = new Map();
 
   meetEntries.forEach((entry) => {
-    const current = byEvent.get(entry.event);
+    const eventKey = `${normalizeEventName(entry.event)}|${entry.season || 'all'}`;
+    const current = byEvent.get(eventKey);
     if (!current) {
-      byEvent.set(entry.event, entry);
+      byEvent.set(eventKey, entry);
       return;
     }
 
     const a = parseNumeric(entry.result);
     const b = parseNumeric(current.result);
-    if (isBetterMark(entry.event, a, b)) byEvent.set(entry.event, entry);
+    if (isBetterMark(entry.event, a, b) || (a === b && new Date(entry.date) > new Date(current.date))) {
+      byEvent.set(eventKey, entry);
+    }
   });
 
   const prList = [...byEvent.values()].sort((a, b) => a.event.localeCompare(b.event));
@@ -338,7 +341,7 @@ function renderPRBoard() {
         <span class="red">PR</span>
       </div>
       <p class="feed-result red">${entry.result}</p>
-      <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}</p>
+      <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}${entry.season ? ` • ${entry.season}` : ''}</p>
     `;
     prBoard.appendChild(li);
   });
@@ -585,8 +588,7 @@ async function syncSiteEntries(source, profileUrl) {
   if (!mapped.length) {
     mapped = parseFallbackFromText(doc.body?.innerText || '', source);
   }
-
-  return mapped;
+  return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
 }
 
 function normalizeImportedDate(value) {
@@ -648,6 +650,7 @@ function parseResultTable(table, source) {
         event,
         result,
         date: normalizeImportedDate(date),
+        season: detectSeason(table, cells),
         createdAt: Date.now(),
       };
     })
@@ -677,6 +680,7 @@ function parseFallbackFromText(text, source) {
       event,
       result,
       date: normalizeImportedDate(line),
+      season: detectSeasonFromText(neighborhood.join(' ')),
       createdAt: Date.now(),
     });
   }
@@ -687,11 +691,76 @@ function parseFallbackFromText(text, source) {
 function dedupeImported(list) {
   const seen = new Set();
   return list.filter((entry) => {
-    const key = entryKey(entry);
+    const key = `${entryKey(entry)}|${entry.season || ''}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function normalizeImportedEntry(entry) {
+  const event = normalizeEventName(entry.event);
+  if (!event || isRelayEvent(event)) return null;
+  const value = parseNumeric(entry.result);
+  if (!isPlausibleMark(event, value)) return null;
+  const normalizedDate = normalizeImportedDate(entry.date);
+  return {
+    ...entry,
+    event,
+    date: normalizedDate,
+  };
+}
+
+function normalizeEventName(value) {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('triple')) return 'Triple Jump';
+  if (raw.includes('long jump')) return 'Long Jump';
+  if (raw.includes('high jump')) return 'High Jump';
+  if (raw.includes('shot')) return 'Shot Put';
+  if (raw.match(/\b100m\b/)) return '100m';
+  if (raw.match(/\b200m\b/)) return '200m';
+  if (raw.match(/\b400m\b/)) return '400m';
+  if (raw.match(/\b800m\b/)) return '800m';
+  if (raw.match(/\b1500m\b/)) return '1500m';
+  if (raw.match(/\b3000m\b/)) return '3000m';
+  if (raw.match(/\b5000m\b/)) return '5000m';
+  return value;
+}
+
+function isRelayEvent(eventName) {
+  return /relay|4x|4×/i.test(String(eventName || ''));
+}
+
+function isPlausibleMark(eventName, value) {
+  if (Number.isNaN(value)) return false;
+  const event = normalizeEventName(eventName);
+  const limits = {
+    'Triple Jump': [8, 20],
+    'Long Jump': [4, 10],
+    'High Jump': [1.2, 2.7],
+    'Shot Put': [6, 26],
+    '100m': [9, 20],
+    '200m': [19, 45],
+    '400m': [42, 90],
+    '800m': [100, 240],
+    '1500m': [200, 500],
+    '3000m': [400, 900],
+    '5000m': [700, 1500],
+  };
+  const range = limits[event];
+  return range ? value >= range[0] && value <= range[1] : true;
+}
+
+function detectSeason(table, cells) {
+  const tableText = cleanText(table.textContent || '');
+  const cellText = cleanText(cells.join(' '));
+  return detectSeasonFromText(`${tableText} ${cellText}`);
+}
+
+function detectSeasonFromText(text) {
+  if (/indoor/i.test(text)) return 'Indoor';
+  if (/outdoor/i.test(text)) return 'Outdoor';
+  return '';
 }
 
 function attachEntryActionHandlers() {
