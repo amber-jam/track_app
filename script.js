@@ -24,11 +24,6 @@ const milesplitUrlInput = document.getElementById('milesplitUrl');
 const openTffrs = document.getElementById('openTffrs');
 const openMileSplit = document.getElementById('openMileSplit');
 const profileMessage = document.getElementById('profileMessage');
-const athleteNameInput = document.getElementById('athleteName');
-const athleteSchoolInput = document.getElementById('athleteSchool');
-const athleteClassInput = document.getElementById('athleteClass');
-const athleteGroupInput = document.getElementById('athleteGroup');
-const saveAthleteBtn = document.getElementById('saveAthleteBtn');
 
 const totalEntries = document.getElementById('totalEntries');
 const eventCount = document.getElementById('eventCount');
@@ -56,7 +51,6 @@ let entryType = 'meet';
 let entries = loadData();
 let profiles = loadProfiles();
 let preferences = loadPreferences();
-let athleteProfile = loadAthleteProfile();
 let chartPoints = [];
 
 render();
@@ -90,17 +84,6 @@ profileForm.addEventListener('submit', (event) => {
   localStorage.setItem('trackflow_profiles', JSON.stringify(profiles));
   profileMessage.textContent = 'Profile links saved.';
   renderProfiles();
-});
-
-saveAthleteBtn.addEventListener('click', () => {
-  athleteProfile = {
-    name: athleteNameInput.value.trim(),
-    school: athleteSchoolInput.value.trim(),
-    classification: athleteClassInput.value.trim(),
-    eventGroup: athleteGroupInput.value.trim(),
-  };
-  localStorage.setItem('trackflow_athlete_profile', JSON.stringify(athleteProfile));
-  profileMessage.textContent = 'Athlete profile saved.';
 });
 
 syncProfilesBtn.addEventListener('click', async () => {
@@ -256,10 +239,6 @@ function renderProfiles() {
   openMileSplit.style.pointerEvents = profiles.milesplit ? 'auto' : 'none';
   openTffrs.style.opacity = profiles.tffrs ? '1' : '0.45';
   openMileSplit.style.opacity = profiles.milesplit ? '1' : '0.45';
-  athleteNameInput.value = athleteProfile.name || '';
-  athleteSchoolInput.value = athleteProfile.school || '';
-  athleteClassInput.value = athleteProfile.classification || '';
-  athleteGroupInput.value = athleteProfile.eventGroup || '';
 }
 
 function render() {
@@ -651,7 +630,7 @@ function normalizeImportedDate(value) {
   if (Number.isNaN(parsed.getTime())) return today;
   const year = parsed.getUTCFullYear();
   const currentYear = new Date().getUTCFullYear();
-  if (year < 1990 || year > currentYear + 1) return today;
+  if (year < 2010 || year > currentYear + 1) return today;
   return parsed.toISOString().split('T')[0];
 }
 
@@ -669,7 +648,7 @@ function isDateLike(value) {
 }
 
 function isEventLike(value) {
-  return /\b(\d{2,4}m|hurdles?|relay|jump|put|vault|steeple|mile|discus|javelin|hammer)\b/i.test(value);
+  return /\b(\d{2,4}m|hurdles?|relay|jump|put|vault|steeple|mile|discus|javelin|hammer|1600|3200)\b/i.test(value);
 }
 
 function isResultLike(value) {
@@ -759,6 +738,8 @@ function dedupeImported(list) {
 function normalizeImportedEntry(entry) {
   const event = normalizeEventName(entry.event);
   if (!event || isRelayEvent(event)) return null;
+  const resultText = String(entry.result || '').toLowerCase();
+  if (/jump|shot put|discus|javelin|hammer/i.test(event) && resultText.includes(':')) return null;
   const value = parseNumeric(entry.result);
   if (!isPlausibleMark(event, value)) return null;
   const normalizedDate = normalizeImportedDate(entry.date);
@@ -783,6 +764,8 @@ function normalizeEventName(value) {
   if (raw.match(/\b1500m\b/)) return '1500m';
   if (raw.match(/\b3000m\b/)) return '3000m';
   if (raw.match(/\b5000m\b/)) return '5000m';
+  if (raw.match(/\b1600m?\b/)) return '1600m';
+  if (raw.match(/\b3200m?\b/)) return '3200m';
   if (raw.match(/\b60m\b/)) return '60m';
   if (raw.match(/\b100\s*meters?\b/)) return '100m';
   if (raw.match(/\b200\s*meters?\b/)) return '200m';
@@ -808,6 +791,8 @@ function isPlausibleMark(eventName, value) {
     '1500m': [200, 500],
     '3000m': [400, 900],
     '5000m': [700, 1500],
+    '1600m': [220, 600],
+    '3200m': [500, 1400],
     '60m': [6, 12],
   };
   const range = limits[event];
@@ -833,21 +818,6 @@ function groupEventsByCategory(entriesList) {
   return categories;
 }
 
-function loadAthleteProfile() {
-  const raw = localStorage.getItem('trackflow_athlete_profile');
-  if (!raw) return { name: '', school: '', classification: '', eventGroup: '' };
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      name: parsed.name || '',
-      school: parsed.school || '',
-      classification: parsed.classification || '',
-      eventGroup: parsed.eventGroup || '',
-    };
-  } catch {
-    return { name: '', school: '', classification: '', eventGroup: '' };
-  }
-}
 
 function detectSeason(table, cells) {
   const tableText = cleanText(table.textContent || '');

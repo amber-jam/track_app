@@ -152,12 +152,6 @@ button {
   margin-top: 0.6rem;
 }
 
-.athlete-grid {
-  margin-top: 0.6rem;
-  display: grid;
-  gap: 0.55rem;
-}
-
 .chip {
   text-decoration: none;
   color: var(--text);
