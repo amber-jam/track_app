@@ -99,6 +99,7 @@ syncProfilesBtn.addEventListener('click', async () => {
       return;
     }
 
+    console.log('[syncProfilesBtn] parsedResultsBeforeMerge', syncedEntries);
     const existingKeys = new Set(entries.filter((entry) => entry.type === 'meet').map((entry) => entryKey(entry)));
     const deduped = syncedEntries.filter((entry) => !existingKeys.has(entryKey(entry)));
 
@@ -643,12 +644,71 @@ async function syncSiteEntries(source, profileUrl) {
   } else {
     console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
   }
-  let mapped = tables.flatMap((table) => parseResultTable(table, source));
+  const relevantTables = tables.filter((table) => isRelevantPerformanceTable(table));
+  console.log(`[syncSiteEntries] relevantTables=${relevantTables.length}`);
+  let mapped = relevantTables.flatMap((table) => parsePerformanceTable(table, source));
+  if (!mapped.length) {
+    mapped = tables.flatMap((table) => parseResultTable(table, source));
+  }
   if (!mapped.length) {
     mapped = parseFallbackFromText(doc.body?.innerText || '', source);
   }
   mapped = keepBestPerEventBySeason(mapped);
+  console.log('[syncSiteEntries] finalMappedResults', mapped);
   return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
+}
+
+function isRelevantPerformanceTable(table) {
+  const text = cleanText(table.innerText || '').toUpperCase();
+  return /\b(60|100|200|400|800|60H|100H|LJ|TJ|SP|HJ|PENT)\b/.test(text);
+}
+
+function parsePerformanceTable(table, source) {
+  const rows = [...table.querySelectorAll('tr')];
+  const parsed = [];
+
+  rows.forEach((row) => {
+    const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
+    if (cells.length < 2) return;
+    const eventToken = cells.find((cell) => /\b(60|100|200|400|800|60H|100H|LJ|TJ|SP|HJ|PENT)\b/i.test(cell));
+    const markToken = cells.find((cell) => isResultLike(cell));
+    if (!eventToken || !markToken) return;
+
+    const windToken = cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null;
+    const event = normalizeEventName(eventToken);
+    const mark = markToken;
+    const converted = convertMarkForDisplay(event, mark);
+    const dateToken = cells.find((cell) => isDateLike(cell)) || today;
+
+    parsed.push({
+      id: crypto.randomUUID(),
+      type: 'meet',
+      source,
+      event,
+      result: mark,
+      mark,
+      wind: windToken,
+      converted,
+      date: normalizeImportedDate(dateToken),
+      season: detectSeason(table, cells),
+      createdAt: Date.now(),
+    });
+  });
+
+  return dedupeImported(parsed);
+}
+
+function convertMarkForDisplay(eventName, mark) {
+  const value = parseNumeric(mark);
+  if (Number.isNaN(value)) return '';
+  const event = normalizeEventName(eventName);
+  if (/jump|shot put|discus|javelin|hammer/i.test(event)) {
+    const totalInches = value / 0.0254;
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches - feet * 12;
+    return `${feet}' ${inches.toFixed(2)}"`;
+  }
+  return '';
 }
 
 function normalizeImportedDate(value) {
@@ -861,6 +921,9 @@ function normalizeEventName(value) {
   if (raw === '3000') return '3000m';
   if (raw === '3200') return '3200m';
   if (raw === '5000') return '5000m';
+  if (raw === '60h' || raw.includes('60h')) return '60H';
+  if (raw === '100h' || raw.includes('100h')) return '100H';
+  if (raw.includes('pent')) return 'PENT';
   if (raw.includes('triple')) return 'Triple Jump';
   if (raw.includes('long jump')) return 'Long Jump';
   if (raw.includes('high jump')) return 'High Jump';
