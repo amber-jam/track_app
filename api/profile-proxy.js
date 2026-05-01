@@ -1,5 +1,6 @@
 export default async function handler(req, res) {
   const { url } = req.query;
+  const debug = req.query.debug === '1';
 
   if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'Missing url query parameter.' });
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
     clearTimeout(timeout);
 
     console.log(`[profile-proxy] upstream status: ${upstream.status}`);
+    console.log(`[profile-proxy] upstream final URL: ${upstream.url}`);
     if (!upstream.ok) {
       res.status(upstream.status).json({ error: `Upstream request failed with ${upstream.status}.` });
       return;
@@ -44,7 +46,22 @@ export default async function handler(req, res) {
 
     const html = await upstream.text();
     console.log(`[profile-proxy] html length: ${html.length}`);
+    console.log(`[profile-proxy] html preview: ${html.slice(0, 1000).replace(/\s+/g, ' ')}`);
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600');
+    if (debug) {
+      res.status(200).json({
+        html,
+        debug: {
+          status: upstream.status,
+          redirected: upstream.redirected,
+          finalUrl: upstream.url,
+          htmlLength: html.length,
+          htmlPreview: html.slice(0, 1000),
+          tableCount: (html.match(/<table/gi) || []).length,
+        },
+      });
+      return;
+    }
     res.status(200).json({ html });
   } catch (error) {
     clearTimeout(timeout);

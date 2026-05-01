@@ -621,7 +621,7 @@ function nearestPoint(mouseEvent) {
 }
 
 async function syncSiteEntries(source, profileUrl) {
-  const proxiedUrl = `/api/profile-proxy?url=${encodeURIComponent(profileUrl)}`;
+  const proxiedUrl = `/api/profile-proxy?url=${encodeURIComponent(profileUrl)}&debug=1`;
   const response = await fetch(proxiedUrl);
   if (!response.ok) {
     const message = await response.json().catch(() => ({}));
@@ -630,11 +630,19 @@ async function syncSiteEntries(source, profileUrl) {
 
   const payload = await response.json();
   const html = payload.html || '';
+  if (payload.debug) {
+    console.log('[syncSiteEntries] proxyDebug', payload.debug);
+  }
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const tables = [...doc.querySelectorAll('table')];
   console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
+  if (tables.length > 0) {
+    console.log('[syncSiteEntries] firstTablePreview', (tables[0].innerText || '').slice(0, 1000));
+  } else {
+    console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
+  }
   let mapped = tables.flatMap((table) => parseResultTable(table, source));
   if (!mapped.length) {
     mapped = parseFallbackFromText(doc.body?.innerText || '', source);
