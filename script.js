@@ -637,25 +637,81 @@ async function syncSiteEntries(source, profileUrl) {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const tables = [...doc.querySelectorAll('table')];
-  console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
-  if (tables.length > 0) {
-    console.log('[syncSiteEntries] firstTablePreview', (tables[0].innerText || '').slice(0, 1000));
+  let mapped = [];
+  if (source === 'tffrs') {
+    mapped = parseTfrrsRows(doc, source);
   } else {
-    console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
-  }
-  const relevantTables = tables.filter((table) => isRelevantPerformanceTable(table));
-  console.log(`[syncSiteEntries] relevantTables=${relevantTables.length}`);
-  let mapped = relevantTables.flatMap((table) => parsePerformanceTable(table, source));
-  if (!mapped.length) {
-    mapped = tables.flatMap((table) => parseResultTable(table, source));
-  }
-  if (!mapped.length) {
-    mapped = parseFallbackFromText(doc.body?.innerText || '', source);
+    const tables = [...doc.querySelectorAll('table')];
+    console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
+    if (tables.length > 0) {
+      console.log('[syncSiteEntries] firstTablePreview', (tables[0].innerText || '').slice(0, 1000));
+    } else {
+      console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
+    }
+    const relevantTables = tables.filter((table) => isRelevantPerformanceTable(table));
+    mapped = relevantTables.flatMap((table) => parsePerformanceTable(table, source));
+    if (!mapped.length) {
+      mapped = tables.flatMap((table) => parseResultTable(table, source));
+    }
+    if (!mapped.length) {
+      mapped = parseFallbackFromText(doc.body?.innerText || '', source);
+    }
   }
   mapped = keepBestPerEventBySeason(mapped);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
   return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
+}
+
+function parseTfrrsRows(doc, source) {
+  const validEvents = ['60', '100', '200', '400', '800', '60H', '100H', 'LJ', 'TJ', 'HJ', 'SP', 'PENT'];
+  const rows = [...doc.querySelectorAll('tr')];
+  const parsed = rows
+    .map((row) => {
+      const style = String(row.getAttribute('style') || '').toLowerCase();
+      if (style.includes('display:none')) return null;
+      const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
+      if (!cells.length) return null;
+      const rowText = cells.join(' | ');
+      const eventToken = validEvents.find((event) => new RegExp(`\\b${event}\\b`, 'i').test(rowText));
+      if (!eventToken) return null;
+      const mark = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
+      const date = cells.find((cell) => isDateLike(cell));
+      if (!mark || !date) return null;
+      const normalizedDate = normalizeImportedDate(date);
+      if (normalizedDate === today) return null;
+      const meet = cells.find((cell) => /invite|classic|relay|championship|meet|open/i.test(cell)) || '';
+      const season = detectSeasonFromText(rowText);
+      const year = new Date(normalizedDate).getUTCFullYear();
+      return {
+        id: crypto.randomUUID(),
+        type: 'meet',
+        source,
+        event: normalizeEventName(eventToken),
+        result: mark,
+        mark,
+        converted: convertMarkForDisplay(eventToken, mark),
+        wind: cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null,
+        meet,
+        date: normalizedDate,
+        year,
+        season,
+        createdAt: Date.now(),
+      };
+    })
+    .filter(Boolean);
+  const unique = dedupeByEventMarkDate(parsed);
+  console.log('FINAL PARSED RESULTS:', unique);
+  return unique;
+}
+
+function dedupeByEventMarkDate(list) {
+  const seen = new Set();
+  return list.filter((entry) => {
+    const key = `${entry.event}|${entry.mark}|${entry.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isRelevantPerformanceTable(table) {
