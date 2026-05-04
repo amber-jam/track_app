@@ -671,14 +671,16 @@ function parsePerformanceTable(table, source) {
     const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
     if (cells.length < 2) return;
     const eventToken = cells.find((cell) => /\b(60|100|200|400|800|60H|100H|LJ|TJ|SP|HJ|PENT)\b/i.test(cell));
-    const markToken = cells.find((cell) => isResultLike(cell));
+    const markToken = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
     if (!eventToken || !markToken) return;
 
     const windToken = cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null;
     const event = normalizeEventName(eventToken);
     const mark = markToken;
     const converted = convertMarkForDisplay(event, mark);
-    const dateToken = cells.find((cell) => isDateLike(cell)) || today;
+    const dateToken = cells.find((cell) => isDateLike(cell));
+    const normalizedDate = normalizeImportedDate(dateToken);
+    if (!dateToken || normalizedDate === today) return;
 
     parsed.push({
       id: crypto.randomUUID(),
@@ -689,7 +691,7 @@ function parsePerformanceTable(table, source) {
       mark,
       wind: windToken,
       converted,
-      date: normalizeImportedDate(dateToken),
+      date: normalizedDate,
       season: detectSeason(table, cells),
       createdAt: Date.now(),
     });
@@ -719,6 +721,24 @@ function normalizeImportedDate(value) {
   const currentYear = new Date().getUTCFullYear();
   if (year < 2010 || year > currentYear + 1) return today;
   return parsed.toISOString().split('T')[0];
+}
+
+function isValidMarkForEvent(eventToken, markToken) {
+  const event = normalizeEventName(eventToken);
+  const mark = String(markToken || '').trim().toLowerCase();
+  const numeric = parseNumeric(markToken);
+  if (Number.isNaN(numeric)) return false;
+
+  if (event === 'PENT') {
+    return /\bpts?\b/.test(mark) || numeric >= 1000;
+  }
+  if (/60H|100H/.test(event)) {
+    return mark.includes(':') || numeric < 30;
+  }
+  if (/jump|shot put|discus|javelin|hammer/i.test(event)) {
+    return !mark.includes(':');
+  }
+  return true;
 }
 
 function entryKey(entry) {
@@ -771,13 +791,15 @@ function parseResultTable(table, source) {
       if (isResultLike(event)) return null;
       if (/^pr$/i.test(event)) return null;
 
+      const normalizedDate = normalizeImportedDate(date);
+      if (normalizedDate === today) return null;
       return {
         id: crypto.randomUUID(),
         type: 'meet',
         source,
         event,
         result,
-        date: normalizeImportedDate(date),
+        date: normalizedDate,
         season: detectSeason(table, cells),
         createdAt: Date.now(),
       };
@@ -804,6 +826,8 @@ function parseFallbackFromText(text, source) {
     const event = extractEventFromLine(line);
     const result = extractResultFromLine(line);
     if (!event || !isEventLike(event) || !result) continue;
+    const normalizedDate = normalizeImportedDate(activeDate);
+    if (normalizedDate === today) continue;
 
     imported.push({
       id: crypto.randomUUID(),
@@ -811,7 +835,7 @@ function parseFallbackFromText(text, source) {
       source,
       event,
       result,
-      date: normalizeImportedDate(activeDate),
+      date: normalizedDate,
       season: detectSeasonFromText(line),
       createdAt: Date.now(),
     });
