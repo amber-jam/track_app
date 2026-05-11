@@ -56,7 +56,10 @@ let chartPoints = [];
 render();
 renderProfiles();
 setEntryMode('meet');
-configureCanvas();
+window.requestAnimationFrame(() => {
+  configureCanvas();
+  renderChart();
+});
 
 meetTypeBtn.addEventListener('click', () => setEntryMode('meet'));
 practiceTypeBtn.addEventListener('click', () => setEntryMode('practice'));
@@ -73,6 +76,11 @@ canvas.addEventListener('click', onChartClick);
 window.addEventListener('resize', () => {
   configureCanvas();
   renderChart();
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.action-btn');
+  if (!btn) return;
+  onEntryActionClick({ currentTarget: btn });
 });
 
 profileForm.addEventListener('submit', (event) => {
@@ -398,7 +406,6 @@ function renderFeeds() {
     `));
   });
 
-  attachEntryActionHandlers();
 }
 
 function feedItem(id, content) {
@@ -414,9 +421,9 @@ function renderChart() {
   const height = canvas.clientHeight || 180;
   const filter = eventFilter.value;
   const meetEntries = entries.filter((entry) => entry.type === 'meet');
-  const filtered = filter && filter !== 'All events'
-    ? meetEntries.filter((entry) => entry.event === filter)
-    : meetEntries;
+  const filtered = (!filter || filter === 'All events')
+    ? meetEntries
+    : meetEntries.filter((entry) => entry.event === filter);
 
   const points = [...filtered]
     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -504,8 +511,8 @@ function renderChart() {
 function configureCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const cssWidth = Math.max(320, Math.floor(rect.width || 320));
-  const cssHeight = Math.max(180, Math.floor(rect.height || 180));
+  const cssWidth = Math.max(320, Math.floor(rect.width) || 320);
+  const cssHeight = Math.max(180, Math.floor(rect.height) || 180);
   canvas.width = Math.floor(cssWidth * dpr);
   canvas.height = Math.floor(cssHeight * dpr);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -545,24 +552,28 @@ function isFieldEvent(eventName) {
 }
 
 function parseNumeric(value) {
-  const text = String(value || '').trim().toLowerCase();
+  const text = String(value || '').toLowerCase().trim();
   if (!text) return NaN;
-  if (/^(19|20)\d{2}$/.test(text)) return NaN;
 
-  const timeMatch = text.match(/^(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/);
-  if (timeMatch) {
-    return Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
-  }
+  const time = text.match(/(\d+):(\d+(?:\.\d+)?)/);
+  if (time) return Number(time[1]) * 60 + Number(time[2]);
 
-  const feetInchesMatch = text.match(/^(\d{1,2})-(\d{1,2}(?:\.\d+)?)$/);
-  if (feetInchesMatch) {
-    const feet = Number(feetInchesMatch[1]);
-    const inches = Number(feetInchesMatch[2]);
+  const dashFeetInches = text.match(/^(\d+)-(\d+(?:\.\d+)?)$/);
+  if (dashFeetInches) {
+    const feet = Number(dashFeetInches[1]);
+    const inches = Number(dashFeetInches[2]);
     return feet * 0.3048 + inches * 0.0254;
   }
 
-  const match = text.match(/\d+(\.\d+)?/);
-  return match ? Number(match[0]) : NaN;
+  const spacedFeetInches = text.match(/^(\d+)\s+(\d+(?:\.\d+)?)$/);
+  if (spacedFeetInches) {
+    const feet = Number(spacedFeetInches[1]);
+    const inches = Number(spacedFeetInches[2]);
+    return feet * 0.3048 + inches * 0.0254;
+  }
+
+  const cleaned = text.replace(/[^0-9.]/g, '');
+  return cleaned ? Number(cleaned) : NaN;
 }
 
 function formatDate(value) {
@@ -630,13 +641,22 @@ async function syncSiteEntries(source, profileUrl) {
   }
 
   const payload = await response.json();
-  const html = payload.html || '';
+  const html = payload?.html;
+  if (!html || !html.trim()) {
+    throw new Error('Proxy returned empty HTML');
+  }
   if (payload.debug) {
     console.log('[syncSiteEntries] proxyDebug', payload.debug);
   }
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
+  console.log({
+    source,
+    tablesFound: doc.querySelectorAll('table').length,
+    htmlLength: html.length,
+    hasScriptTags: doc.querySelectorAll('script').length,
+  });
   let mapped = [];
   if (source === 'tffrs') {
     mapped = parseTfrrsRows(doc, source);
@@ -648,7 +668,7 @@ async function syncSiteEntries(source, profileUrl) {
     } else {
       console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
     }
-    const relevantTables = tables.filter((table) => isRelevantPerformanceTable(table));
+    const relevantTables = tables.length ? tables : [];
     mapped = relevantTables.flatMap((table) => parsePerformanceTable(table, source));
     if (!mapped.length) {
       mapped = tables.flatMap((table) => parseResultTable(table, source));
@@ -832,7 +852,7 @@ function isValidMarkForEvent(eventToken, markToken) {
 }
 
 function entryKey(entry) {
-  return `${entry.type}|${entry.event || entry.session}|${entry.result || entry.value}|${entry.date}`;
+  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${parseNumeric(entry.result || entry.value)}|${entry.date}`;
 }
 
 function cleanText(value) {
@@ -1114,12 +1134,6 @@ function detectSeasonFromText(text) {
   if (/indoor/i.test(text)) return 'Indoor';
   if (/outdoor/i.test(text)) return 'Outdoor';
   return '';
-}
-
-function attachEntryActionHandlers() {
-  document.querySelectorAll('.action-btn').forEach((button) => {
-    button.addEventListener('click', onEntryActionClick);
-  });
 }
 
 function onEntryActionClick(event) {
