@@ -770,8 +770,12 @@ function convertMarkForDisplay(eventName, mark) {
 }
 
 function normalizeImportedDate(value) {
-  if (!isDateLike(String(value || ''))) return today;
-  const parsed = new Date(value);
+  const raw = String(value || '').trim();
+  if (!isDateLike(raw)) return today;
+  const normalizedInput = raw
+    .replace(/(\b[A-Za-z]{3,}\s+\d{1,2})-\d{1,2}(,\s*\d{4})/i, '$1$2')
+    .replace(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{2,4})/, '$1/$2/$4');
+  const parsed = new Date(normalizedInput);
   if (Number.isNaN(parsed.getTime())) return today;
   const year = parsed.getUTCFullYear();
   const currentYear = new Date().getUTCFullYear();
@@ -806,8 +810,8 @@ function cleanText(value) {
 }
 
 function isDateLike(value) {
-  return /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(value)
-    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b/i.test(value);
+  return /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{1,2})?[/-]\d{2,4}\b/.test(value)
+    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{2,4}\b/i.test(value);
 }
 
 function isEventLike(value) {
