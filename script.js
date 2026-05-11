@@ -688,7 +688,18 @@ async function syncSiteEntries(source, profileUrl) {
   // Keep all unique performances; PR board can compute bests separately.
   mapped = dedupeByEventMarkDate(mapped);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
-  return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
+  const normalizedMapped = mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean);
+  if (!normalizedMapped.length && mapped.length) {
+    console.warn('[syncSiteEntries] normalization dropped all rows; falling back to raw mapped rows');
+    return dedupeImported(
+      mapped.map((entry) => ({
+        ...entry,
+        event: normalizeEventName(entry.event),
+        date: normalizeImportedDate(entry.date),
+      }))
+    );
+  }
+  return dedupeImported(normalizedMapped);
 }
 
 function parseTfrrsRows(doc, source) {
@@ -1130,7 +1141,9 @@ function isPlausibleMark(eventName, value) {
     '60m': [6, 12],
   };
   const range = limits[event];
-  return range ? value >= range[0] && value <= range[1] : true;
+  // Use soft validation in production import path to avoid dropping valid but unusual marks.
+  if (!range) return true;
+  return value >= range[0] * 0.6 && value <= range[1] * 1.5;
 }
 
 function groupEventsByCategory(entriesList) {
