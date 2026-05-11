@@ -665,40 +665,53 @@ async function syncSiteEntries(source, profileUrl) {
 function parseTfrrsRows(doc, source) {
   const validEvents = ['60', '100', '200', '400', '800', '60H', '100H', 'LJ', 'TJ', 'HJ', 'SP', 'PENT'];
   const rows = [...doc.querySelectorAll('tr')];
-  const parsed = rows
-    .map((row) => {
-      const style = String(row.getAttribute('style') || '').toLowerCase();
-      if (style.includes('display:none')) return null;
-      const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
-      if (!cells.length) return null;
-      const rowText = cells.join(' | ');
-      const eventToken = validEvents.find((event) => new RegExp(`\\b${event}\\b`, 'i').test(rowText));
-      if (!eventToken) return null;
-      const mark = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
-      const date = cells.find((cell) => isDateLike(cell));
-      if (!mark || !date) return null;
-      const normalizedDate = normalizeImportedDate(date);
-      if (normalizedDate === today) return null;
-      const meet = cells.find((cell) => /invite|classic|relay|championship|meet|open/i.test(cell)) || '';
-      const season = detectSeasonFromText(rowText);
-      const year = new Date(normalizedDate).getUTCFullYear();
-      return {
-        id: crypto.randomUUID(),
-        type: 'meet',
-        source,
-        event: normalizeEventName(eventToken),
-        result: mark,
-        mark,
-        converted: convertMarkForDisplay(eventToken, mark),
-        wind: cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null,
-        meet,
-        date: normalizedDate,
-        year,
-        season,
-        createdAt: Date.now(),
-      };
-    })
-    .filter(Boolean);
+  const parsed = [];
+  let activeDate = '';
+  let activeMeet = '';
+  let activeSeason = '';
+
+  rows.forEach((row) => {
+    const style = String(row.getAttribute('style') || '').toLowerCase();
+    if (style.includes('display:none')) return;
+    const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
+    if (!cells.length) return;
+    const rowText = cells.join(' | ');
+
+    const rowDate = cells.find((cell) => isDateLike(cell));
+    if (rowDate) {
+      const normalized = normalizeImportedDate(rowDate);
+      if (normalized !== today) activeDate = normalized;
+    }
+
+    const rowMeet = cells.find((cell) => /invite|classic|relay|championship|meet|open/i.test(cell));
+    if (rowMeet) activeMeet = rowMeet;
+
+    const rowSeason = detectSeasonFromText(rowText);
+    if (rowSeason) activeSeason = rowSeason;
+
+    const eventToken = validEvents.find((event) => new RegExp(`\\b${event}\\b`, 'i').test(rowText));
+    if (!eventToken) return;
+
+    const mark = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
+    if (!mark || !activeDate) return;
+
+    const year = new Date(activeDate).getUTCFullYear();
+    parsed.push({
+      id: crypto.randomUUID(),
+      type: 'meet',
+      source,
+      event: normalizeEventName(eventToken),
+      result: mark,
+      mark,
+      converted: convertMarkForDisplay(eventToken, mark),
+      wind: cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null,
+      meet: activeMeet,
+      date: activeDate,
+      year,
+      season: activeSeason,
+      createdAt: Date.now(),
+    });
+  });
   const unique = dedupeByEventMarkDate(parsed);
   console.log('FINAL PARSED RESULTS:', unique);
   return unique;
