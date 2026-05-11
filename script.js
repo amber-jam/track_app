@@ -689,10 +689,10 @@ function parseTfrrsRows(doc, source) {
     const rowSeason = detectSeasonFromText(rowText);
     if (rowSeason) activeSeason = rowSeason;
 
-    const eventToken = validEvents.find((event) => new RegExp(`\\b${event}\\b`, 'i').test(rowText));
+    const eventToken = extractEventTokenFromCells(cells, validEvents);
     if (!eventToken) return;
 
-    const mark = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
+    const mark = cells.find((cell) => isResultLike(cell));
     if (!mark || !activeDate) return;
 
     const year = new Date(activeDate).getUTCFullYear();
@@ -715,6 +715,23 @@ function parseTfrrsRows(doc, source) {
   const unique = dedupeByEventMarkDate(parsed);
   console.log('FINAL PARSED RESULTS:', unique);
   return unique;
+}
+
+function extractEventTokenFromCells(cells, validEvents) {
+  for (const cell of cells) {
+    const normalized = cleanText(cell).toUpperCase();
+    if (!normalized) continue;
+    const exact = validEvents.find((event) => normalized === event || normalized.startsWith(`${event} `));
+    if (exact) return exact;
+  }
+
+  for (const cell of cells) {
+    const normalized = cleanText(cell).toUpperCase();
+    const fuzzy = validEvents.find((event) => new RegExp(`\\b${event}\\b`, 'i').test(normalized));
+    if (fuzzy) return fuzzy;
+  }
+
+  return '';
 }
 
 function dedupeByEventMarkDate(list) {
