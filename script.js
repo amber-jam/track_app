@@ -117,11 +117,20 @@ syncProfilesBtn.addEventListener('click', async () => {
     }
 
     console.log('[syncProfilesBtn] parsedResultsBeforeMerge', syncedEntries);
-    rawEntries = [...syncedEntries, ...rawEntries];
+    const uniqueSyncedEntries = filterNewImportedEntries(syncedEntries, rawEntries);
+    if (!uniqueSyncedEntries.length) {
+      profileMessage.textContent = `Sync complete. No new results to add (${syncedEntries.length} duplicate${syncedEntries.length === 1 ? '' : 's'} skipped).`;
+      return;
+    }
+
+    rawEntries = [...uniqueSyncedEntries, ...rawEntries];
     entries = rawEntries;
     persist();
     render();
-    profileMessage.textContent = `Synced ${syncedEntries.length} results.`;
+    const duplicateCount = syncedEntries.length - uniqueSyncedEntries.length;
+    profileMessage.textContent = duplicateCount > 0
+      ? `Synced ${uniqueSyncedEntries.length} new results (${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} skipped).`
+      : `Synced ${uniqueSyncedEntries.length} new results.`;
   } catch (error) {
     profileMessage.textContent = error?.message || 'Unable to sync profile data right now. Try again later.';
   }
@@ -392,7 +401,7 @@ function renderFeeds() {
         <span>${formatDate(entry.date)}</span>
       </div>
       <p class="feed-result">${entry.result}</p>
-      <p class="micro">${entry.source.toUpperCase()}</p>
+      <p class="micro">${buildMeetMeta(entry)}</p>
       <div class="entry-actions">
         <button type="button" class="ghost action-btn" data-action="edit" data-id="${entry.id}">Edit</button>
         <button type="button" class="ghost action-btn" data-action="delete" data-id="${entry.id}">Delete</button>
@@ -414,6 +423,14 @@ function renderFeeds() {
     `));
   });
 
+}
+
+function buildMeetMeta(entry) {
+  const tokens = [entry.source?.toUpperCase() || 'MANUAL'];
+  if (entry.meet) tokens.push(entry.meet);
+  if (entry.season) tokens.push(entry.season);
+  if (entry.wind) tokens.push(`Wind ${entry.wind}`);
+  return tokens.join(' • ');
 }
 
 function feedItem(id, content) {
@@ -698,7 +715,7 @@ async function syncSiteEntries(source, profileUrl) {
 }
 
 function parseTfrrsRows(doc, source) {
-  const validEvents = ['60', '100', '200', '400', '800', '60H', '100H', 'LJ', 'TJ', 'HJ', 'SP', 'PENT'];
+  const validEvents = ['55', '60', '100', '200', '300', '400', '600', '800', '1000', '60H', '100H', '110H', '300H', '400H', 'LJ', 'TJ', 'HJ', 'SP', 'PENT', 'MILE', '2MILE', '5K'];
   const rows = [...doc.querySelectorAll('tr')];
   const parsed = [];
   let activeDate = '';
@@ -715,7 +732,7 @@ function parseTfrrsRows(doc, source) {
     const rowDate = cells.find((cell) => isDateLike(cell));
     if (rowDate) {
       const normalized = normalizeImportedDate(rowDate);
-      if (normalized !== today) activeDate = normalized;
+      if (normalized) activeDate = normalized;
     }
 
     const rowMeet = cells.find((cell) => /invite|classic|relay|championship|meet|open/i.test(cell));
@@ -785,7 +802,7 @@ function dedupeByEventMarkDate(list) {
 
 function isRelevantPerformanceTable(table) {
   const text = cleanText(table.innerText || '').toUpperCase();
-  return /\b(60|100|200|400|800|60H|100H|LJ|TJ|SP|HJ|PENT)\b/.test(text);
+  return /\b(55|60|100|200|300|400|600|800|1000|60H|100H|110H|300H|400H|LJ|TJ|SP|HJ|PENT|MILE|2MILE|5K)\b/.test(text);
 }
 
 function parsePerformanceTable(table, source) {
@@ -795,7 +812,7 @@ function parsePerformanceTable(table, source) {
   rows.forEach((row) => {
     const cells = [...row.querySelectorAll('th, td')].map((cell) => cleanText(cell.textContent || ''));
     if (cells.length < 2) return;
-    const eventToken = cells.find((cell) => /\b(60|100|200|400|800|60H|100H|LJ|TJ|SP|HJ|PENT)\b/i.test(cell));
+    const eventToken = cells.find((cell) => /\b(55|60|100|200|300|400|600|800|1000|60H|100H|110H|300H|400H|LJ|TJ|SP|HJ|PENT|MILE|2MILE|5K)\b/i.test(cell));
     const markToken = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
     if (!eventToken || !markToken) return;
 
@@ -805,7 +822,7 @@ function parsePerformanceTable(table, source) {
     const converted = convertMarkForDisplay(event, mark);
     const dateToken = cells.find((cell) => isDateLike(cell));
     const normalizedDate = normalizeImportedDate(dateToken);
-    if (!dateToken || normalizedDate === today) return;
+    if (!dateToken || !normalizedDate) return;
 
     parsed.push({
       id: crypto.randomUUID(),
@@ -840,15 +857,15 @@ function convertMarkForDisplay(eventName, mark) {
 
 function normalizeImportedDate(value) {
   const raw = String(value || '').trim();
-  if (!isDateLike(raw)) return today;
+  if (!isDateLike(raw)) return '';
   const normalizedInput = raw
     .replace(/(\b[A-Za-z]{3,}\s+\d{1,2})-\d{1,2}(,\s*\d{4})/i, '$1$2')
     .replace(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{2,4})/, '$1/$2/$4');
   const parsed = new Date(normalizedInput);
-  if (Number.isNaN(parsed.getTime())) return today;
+  if (Number.isNaN(parsed.getTime())) return '';
   const year = parsed.getUTCFullYear();
   const currentYear = new Date().getUTCFullYear();
-  if (year < 2010 || year > currentYear + 1) return today;
+  if (year < 2010 || year > currentYear + 1) return '';
   return parsed.toISOString().split('T')[0];
 }
 
@@ -897,17 +914,23 @@ function isDateLike(value) {
 }
 
 function isEventLike(value) {
-  return /\b(\d{2,4}m|hurdles?|relay|jump|put|vault|steeple|mile|discus|javelin|hammer|1600|3200)\b/i.test(value);
+  return /\b(\d{2,4}m|hurdles?|relay|jump|put|vault|steeple|mile|discus|javelin|hammer|1600|3200|5k|110h|300h|400h)\b/i.test(value);
 }
 
 function isResultLike(value) {
   const text = String(value || '').trim().toLowerCase();
+  const normalized = text
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return false;
   if (/^(19|20)\d{2}$/.test(text)) return false;
   if (/^\d{4}\s*(indoor|outdoor)?$/.test(text)) return false;
   if (text.includes('outdoor') || text.includes('indoor')) return false;
-  return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d{1,2}-\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(text)
-    || /^\d+\.\d+$/.test(text);
+  return /^(\d{1,2}:\d{1,2}(?:\.\d+)?|\d{1,2}-\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:s|m|ft|in|\"|'|pts)?)$/i.test(normalized)
+    || /^\d+\.\d+$/.test(normalized)
+    || /^\d{1,2}[-']\d{1,2}(?:\.\d+)?(?:\")?$/i.test(normalized)
+    || /^\d{1,2}'\s*\d{1,2}(?:\.\d+)?\"?$/i.test(normalized);
 }
 
 function parseResultTable(table, source) {
@@ -934,7 +957,7 @@ function parseResultTable(table, source) {
       if (/^pr$/i.test(event)) return null;
 
       const normalizedDate = normalizeImportedDate(date);
-      if (normalizedDate === today) return null;
+      if (!normalizedDate) return null;
       return {
         id: crypto.randomUUID(),
         type: 'meet',
@@ -969,7 +992,7 @@ function parseFallbackFromText(text, source) {
     const result = extractResultFromLine(line);
     if (!event || !isEventLike(event) || !result) continue;
     const normalizedDate = normalizeImportedDate(activeDate);
-    if (normalizedDate === today) continue;
+    if (!normalizedDate) continue;
 
     imported.push({
       id: crypto.randomUUID(),
@@ -1051,6 +1074,25 @@ function dedupeImported(list) {
   });
 }
 
+function filterNewImportedEntries(importedList, existingList) {
+  const existingKeys = new Set(existingList.map((entry) => importedEntryKey(entry)));
+  return importedList.filter((entry) => {
+    const key = importedEntryKey(entry);
+    if (existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    return true;
+  });
+}
+
+function importedEntryKey(entry) {
+  if (entry.type !== 'meet') return entryKey(entry);
+  const event = normalizeEventName(entry.event);
+  const mark = String(entry.result || '').trim();
+  const date = normalizeImportedDate(entry.date);
+  const source = String(entry.source || '').toLowerCase();
+  return `${event}|${mark}|${date}|${source}`;
+}
+
 function normalizeImportedEntry(entry) {
   console.log('normalize check:', entry);
   const event = normalizeEventName(entry.event);
@@ -1076,18 +1118,28 @@ function normalizeEventName(value) {
   if (raw === 'jt') return 'Javelin';
   if (raw === 'dt') return 'Discus';
   if (raw === 'ht') return 'Hammer';
+  if (raw === '55') return '55m';
   if (raw === '60') return '60m';
   if (raw === '100') return '100m';
   if (raw === '200') return '200m';
+  if (raw === '300') return '300m';
   if (raw === '400') return '400m';
+  if (raw === '600') return '600m';
   if (raw === '800') return '800m';
+  if (raw === '1000') return '1000m';
   if (raw === '1500') return '1500m';
   if (raw === '1600') return '1600m';
   if (raw === '3000') return '3000m';
   if (raw === '3200') return '3200m';
   if (raw === '5000') return '5000m';
+  if (raw.includes('mile') && raw.includes('2')) return '3200m';
+  if (raw.includes('mile')) return '1600m';
+  if (raw === '5k' || raw.includes('5k')) return '5000m';
   if (raw === '60h' || raw.includes('60h')) return '60H';
   if (raw === '100h' || raw.includes('100h')) return '100H';
+  if (raw === '110h' || raw.includes('110h')) return '110H';
+  if (raw === '300h' || raw.includes('300h')) return '300H';
+  if (raw === '400h' || raw.includes('400h')) return '400H';
   if (raw.includes('pent')) return 'PENT';
   if (raw.includes('triple')) return 'Triple Jump';
   if (raw.includes('long jump')) return 'Long Jump';
@@ -1141,6 +1193,8 @@ function groupEventsByCategory(entriesList) {
   const categories = {
     Jumps: [],
     Sprints: [],
+    Hurdles: [],
+    Distance: [],
     Throws: [],
     Relays: [],
     Other: [],
@@ -1148,9 +1202,11 @@ function groupEventsByCategory(entriesList) {
   entriesList.forEach((entry) => {
     const event = normalizeEventName(entry.event);
     if (/jump/i.test(event)) categories.Jumps.push(entry);
+    else if (/hurdles?|\b\d+h\b/i.test(event)) categories.Hurdles.push(entry);
+    else if (/\b(800m|1500m|1600m|3000m|3200m|5000m)\b/i.test(event)) categories.Distance.push(entry);
     else if (/shot|discus|javelin|hammer/i.test(event)) categories.Throws.push(entry);
     else if (/relay|4x|4×/i.test(event)) categories.Relays.push(entry);
-    else if (/\b(60m|100m|200m|400m|800m|1500m|3000m|5000m)\b/i.test(event)) categories.Sprints.push(entry);
+    else if (/\b(60m|100m|200m|400m)\b/i.test(event)) categories.Sprints.push(entry);
     else categories.Other.push(entry);
   });
   return categories;
