@@ -48,7 +48,8 @@ const today = new Date().toISOString().split('T')[0];
 entryDateInput.value = today;
 
 let entryType = 'meet';
-let entries = loadData();
+let rawEntries = loadData();
+let entries = rawEntries;
 let profiles = loadProfiles();
 let preferences = loadPreferences();
 let chartPoints = [];
@@ -116,13 +117,11 @@ syncProfilesBtn.addEventListener('click', async () => {
     }
 
     console.log('[syncProfilesBtn] parsedResultsBeforeMerge', syncedEntries);
-    const existingKeys = new Set(entries.filter((entry) => entry.type === 'meet').map((entry) => entryKey(entry)));
-    const deduped = syncedEntries.filter((entry) => !existingKeys.has(entryKey(entry)));
-
-    entries = [...deduped, ...entries];
+    rawEntries = [...syncedEntries, ...rawEntries];
+    entries = rawEntries;
     persist();
     render();
-    profileMessage.textContent = `Synced ${deduped.length} new meet results.`;
+    profileMessage.textContent = `Synced ${syncedEntries.length} results.`;
   } catch (error) {
     profileMessage.textContent = error?.message || 'Unable to sync profile data right now. Try again later.';
   }
@@ -169,7 +168,8 @@ entryForm.addEventListener('submit', (event) => {
 });
 
 clearAllBtn.addEventListener('click', () => {
-  entries = [];
+  rawEntries = [];
+  entries = rawEntries;
   persist();
   render();
 });
@@ -213,7 +213,7 @@ function loadData() {
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(rawEntries));
 }
 
 function loadProfiles() {
@@ -685,21 +685,16 @@ async function syncSiteEntries(source, profileUrl) {
       mapped = parseFallbackFromText(doc.body?.innerText || '', source);
     }
   }
-  // Keep all unique performances; PR board can compute bests separately.
-  mapped = dedupeByEventMarkDate(mapped);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
-  const normalizedMapped = mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean);
-  if (!normalizedMapped.length && mapped.length) {
-    console.warn('[syncSiteEntries] normalization dropped all rows; falling back to raw mapped rows');
-    return dedupeImported(
-      mapped.map((entry) => ({
-        ...entry,
-        event: normalizeEventName(entry.event),
-        date: normalizeImportedDate(entry.date),
-      }))
-    );
-  }
-  return dedupeImported(normalizedMapped);
+  const parsedBeforeFilter = mapped.length;
+  const normalizedMapped = mapped.map((entry) => normalizeImportedEntry(entry));
+  console.log({
+    source,
+    tablesFound: doc.querySelectorAll('table').length,
+    parsedBeforeFilter,
+    parsedAfterFilter: normalizedMapped.length,
+  });
+  return normalizedMapped;
 }
 
 function parseTfrrsRows(doc, source) {
@@ -889,10 +884,7 @@ function isLikelyEventCodeValue(eventToken, markToken) {
 }
 
 function entryKey(entry) {
-  const rawMark = String(entry.result || entry.value || '').trim().toLowerCase();
-  const numericMark = parseNumeric(rawMark);
-  const markKey = Number.isNaN(numericMark) ? rawMark : numericMark;
-  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${markKey}|${entry.date}`;
+  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${parseNumeric(entry.result || entry.value)}|${entry.date}`;
 }
 
 function cleanText(value) {
@@ -1060,12 +1052,11 @@ function dedupeImported(list) {
 }
 
 function normalizeImportedEntry(entry) {
+  console.log('normalize check:', entry);
   const event = normalizeEventName(entry.event);
-  if (!event || isRelayEvent(event)) return null;
-  const resultText = String(entry.result || '').toLowerCase();
-  if (/jump|shot put|discus|javelin|hammer/i.test(event) && resultText.includes(':')) return null;
-  const value = parseNumeric(entry.result);
-  if (!isPlausibleMark(event, value)) return null;
+  if (!event) {
+    return { ...entry, event: entry.event || 'Unknown Event', date: normalizeImportedDate(entry.date) };
+  }
   const normalizedDate = normalizeImportedDate(entry.date);
   return {
     ...entry,
@@ -1143,7 +1134,7 @@ function isPlausibleMark(eventName, value) {
   const range = limits[event];
   // Use soft validation in production import path to avoid dropping valid but unusual marks.
   if (!range) return true;
-  return value >= range[0] * 0.6 && value <= range[1] * 1.5;
+  return value >= range[0] * 0.7 && value <= range[1] * 1.3;
 }
 
 function groupEventsByCategory(entriesList) {
@@ -1185,7 +1176,8 @@ function onEntryActionClick(event) {
   if (!entry) return;
 
   if (action === 'delete') {
-    entries = entries.filter((item) => item.id !== id);
+    rawEntries = rawEntries.filter((item) => item.id !== id);
+    entries = rawEntries;
     persist();
     render();
     return;
