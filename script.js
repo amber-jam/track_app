@@ -677,7 +677,8 @@ async function syncSiteEntries(source, profileUrl) {
       mapped = parseFallbackFromText(doc.body?.innerText || '', source);
     }
   }
-  mapped = keepBestPerEventBySeason(mapped);
+  // Keep all unique performances; PR board can compute bests separately.
+  mapped = dedupeByEventMarkDate(mapped);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
   return dedupeImported(mapped.map((entry) => normalizeImportedEntry(entry)).filter(Boolean));
 }
@@ -712,7 +713,11 @@ function parseTfrrsRows(doc, source) {
     const eventToken = extractEventTokenFromCells(cells, validEvents);
     if (!eventToken) return;
 
-    const mark = cells.find((cell) => isResultLike(cell));
+    const mark = cells.find((cell) =>
+      isResultLike(cell) &&
+      !isLikelyEventCodeValue(eventToken, cell) &&
+      isValidMarkForEvent(eventToken, cell)
+    );
     if (!mark || !activeDate) return;
 
     const year = new Date(activeDate).getUTCFullYear();
@@ -842,6 +847,9 @@ function isValidMarkForEvent(eventToken, markToken) {
   if (event === 'PENT') {
     return /\bpts?\b/.test(mark) || numeric >= 1000;
   }
+  if (['60m', '100m', '200m', '400m', '800m', '1500m', '1600m', '3000m', '3200m', '5000m'].includes(event)) {
+    return numeric < 2000;
+  }
   if (/60H|100H/.test(event)) {
     return mark.includes(':') || numeric < 30;
   }
@@ -851,8 +859,21 @@ function isValidMarkForEvent(eventToken, markToken) {
   return true;
 }
 
+function isLikelyEventCodeValue(eventToken, markToken) {
+  const event = normalizeEventName(eventToken);
+  const mark = String(markToken || '').trim().toLowerCase();
+  if (!mark) return true;
+  const eventNumberMatch = event.match(/^\d+/);
+  if (!eventNumberMatch) return false;
+  const eventDistance = eventNumberMatch[0];
+  return mark === eventDistance;
+}
+
 function entryKey(entry) {
-  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${parseNumeric(entry.result || entry.value)}|${entry.date}`;
+  const rawMark = String(entry.result || entry.value || '').trim().toLowerCase();
+  const numericMark = parseNumeric(rawMark);
+  const markKey = Number.isNaN(numericMark) ? rawMark : numericMark;
+  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${markKey}|${entry.date}`;
 }
 
 function cleanText(value) {
