@@ -99,8 +99,16 @@ syncProfilesBtn.addEventListener('click', async () => {
   const syncedEntries = [];
 
   try {
-    if (profiles.tffrs) syncedEntries.push(...await syncSiteEntries('tffrs', profiles.tffrs));
-    if (profiles.milesplit) syncedEntries.push(...await syncSiteEntries('milesplit', profiles.milesplit));
+    if (profiles.tffrs) {
+      const tfrrsEntries = await syncSiteEntries('tffrs', profiles.tffrs);
+      console.log('[syncProfilesBtn] TFRRS parsed entries:', tfrrsEntries.length, tfrrsEntries.slice(0, 5));
+      syncedEntries.push(...tfrrsEntries);
+    }
+    if (profiles.milesplit) {
+      const milesplitEntries = await syncSiteEntries('milesplit', profiles.milesplit);
+      console.log('[syncProfilesBtn] MileSplit parsed entries:', milesplitEntries.length, milesplitEntries.slice(0, 5));
+      syncedEntries.push(...milesplitEntries);
+    }
 
     if (!syncedEntries.length) {
       profileMessage.textContent = 'No meet results were found during sync.';
@@ -646,7 +654,7 @@ async function syncSiteEntries(source, profileUrl) {
     throw new Error('Proxy returned empty HTML');
   }
   if (payload.debug) {
-    console.log('[syncSiteEntries] proxyDebug', payload.debug);
+    console.log(`[syncSiteEntries] ${source.toUpperCase()} proxyDebug`, payload.debug);
   }
 
   const parser = new DOMParser();
