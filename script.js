@@ -877,7 +877,7 @@ function normalizeImportedDate(value) {
 function extractDateSnippet(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const textRange = raw.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{4}\b/i);
+  const textRange = raw.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{2,4}\b/i);
   if (textRange) return textRange[0];
   const slashRange = raw.match(/\b\d{1,2}\/\d{1,2}-\d{1,2}\/\d{2,4}\b/);
   if (slashRange) return slashRange[0];
