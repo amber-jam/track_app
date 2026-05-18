@@ -602,7 +602,9 @@ function parseNumeric(value) {
 }
 
 function formatDate(value) {
-  return new Date(value).toLocaleDateString(undefined, {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Unknown Date';
+  return parsed.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -704,7 +706,9 @@ async function syncSiteEntries(source, profileUrl) {
   }
   console.log('[syncSiteEntries] finalMappedResults', mapped);
   const parsedBeforeFilter = mapped.length;
-  const normalizedMapped = mapped.map((entry) => normalizeImportedEntry(entry));
+  const normalizedMapped = mapped
+    .map((entry) => normalizeImportedEntry(entry))
+    .filter(Boolean);
   console.log({
     source,
     tablesFound: doc.querySelectorAll('table').length,
@@ -901,7 +905,13 @@ function isLikelyEventCodeValue(eventToken, markToken) {
 }
 
 function entryKey(entry) {
-  return `${entry.type}|${normalizeEventName(entry.event || entry.session)}|${parseNumeric(entry.result || entry.value)}|${entry.date}`;
+  if (entry.type === 'meet') {
+    const normalizedEvent = normalizeEventName(entry.event);
+    const normalizedDate = normalizeImportedDate(entry.date) || String(entry.date || '').trim();
+    const rawResult = String(entry.result || '').trim().toLowerCase();
+    return `${entry.type}|${normalizedEvent}|${rawResult}|${normalizedDate}`;
+  }
+  return `${entry.type}|${normalizeEventName(entry.session)}|${String(entry.metric || '').trim().toLowerCase()}|${String(entry.value || '').trim().toLowerCase()}|${entry.date}`;
 }
 
 function cleanText(value) {
@@ -955,6 +965,9 @@ function parseResultTable(table, source) {
       if (!isEventLike(event)) return null;
       if (isResultLike(event)) return null;
       if (/^pr$/i.test(event)) return null;
+      if (!isResultLike(result)) return null;
+      if (normalizeEventName(event) === normalizeEventName(result)) return null;
+      if (!isValidMarkForEvent(event, result)) return null;
 
       const normalizedDate = normalizeImportedDate(date);
       if (!normalizedDate) return null;
@@ -1100,9 +1113,15 @@ function normalizeImportedEntry(entry) {
     return { ...entry, event: entry.event || 'Unknown Event', date: normalizeImportedDate(entry.date) };
   }
   const normalizedDate = normalizeImportedDate(entry.date);
+  if (!normalizedDate) return null;
+  const normalizedResult = String(entry.result || '').trim();
+  if (!normalizedResult || !isResultLike(normalizedResult)) return null;
+  if (normalizeEventName(normalizedResult) === event) return null;
+  if (!isValidMarkForEvent(event, normalizedResult)) return null;
   return {
     ...entry,
     event,
+    result: normalizedResult,
     date: normalizedDate,
   };
 }
