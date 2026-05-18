@@ -988,13 +988,13 @@ function parseResultTable(table, source) {
     .map((cells) => {
       const date = dateIndex >= 0 ? cells[dateIndex] : cells.find((part) => isDateLike(part));
       const event = eventIndex >= 0 ? cells[eventIndex] : cells.find((part) => isEventLike(part) && !/^pr$/i.test(part));
-      const result = resultIndex >= 0 ? cells[resultIndex] : cells.find((part) => isResultLike(part));
+      const result = selectResultToken(cells, { resultIndex, event });
       if (!date || !event || !result) return null;
       if (!isEventLike(event)) return null;
       if (isResultLike(event)) return null;
       if (/^pr$/i.test(event)) return null;
       if (!isResultLike(result) && Number.isNaN(parseNumeric(result))) return null;
-      if (normalizeEventName(event) === normalizeEventName(result) && !cells.some((part) => isResultLike(part) && normalizeEventName(part) !== normalizeEventName(event))) return null;
+      if (normalizeEventName(event) === normalizeEventName(result)) return null;
       if (isResultLike(result) && !isValidMarkForEvent(event, result)) return null;
 
       const normalizedDate = normalizeImportedDate(date);
@@ -1011,6 +1011,18 @@ function parseResultTable(table, source) {
       };
     })
     .filter(Boolean);
+}
+
+function selectResultToken(cells, { resultIndex, event }) {
+  const normalizedEvent = normalizeEventName(event);
+  const candidates = [];
+  if (resultIndex >= 0 && cells[resultIndex]) candidates.push(cells[resultIndex]);
+  cells.forEach((cell) => {
+    if (!cell) return;
+    if (normalizeEventName(cell) === normalizedEvent) return;
+    if (isResultLike(cell) || !Number.isNaN(parseNumeric(cell))) candidates.push(cell);
+  });
+  return candidates.find((token) => normalizeEventName(token) !== normalizedEvent) || '';
 }
 
 function findIndex(cells, pattern) {
