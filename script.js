@@ -993,9 +993,9 @@ function parseResultTable(table, source) {
       if (!isEventLike(event)) return null;
       if (isResultLike(event)) return null;
       if (/^pr$/i.test(event)) return null;
-      if (!isResultLike(result)) return null;
-      if (normalizeEventName(event) === normalizeEventName(result)) return null;
-      if (!isValidMarkForEvent(event, result)) return null;
+      if (!isResultLike(result) && Number.isNaN(parseNumeric(result))) return null;
+      if (normalizeEventName(event) === normalizeEventName(result) && !cells.some((part) => isResultLike(part) && normalizeEventName(part) !== normalizeEventName(event))) return null;
+      if (isResultLike(result) && !isValidMarkForEvent(event, result)) return null;
 
       const normalizedDate = normalizeImportedDate(date);
       if (!normalizedDate) return null;
@@ -1137,18 +1137,18 @@ function importedEntryKey(entry) {
 function normalizeImportedEntry(entry) {
   console.log('normalize check:', entry);
   const event = normalizeEventName(entry.event);
-  if (!event) {
-    return { ...entry, event: entry.event || 'Unknown Event', date: normalizeImportedDate(entry.date) };
-  }
-  const normalizedDate = normalizeImportedDate(entry.date);
+  const normalizedDate = normalizeImportedDate(entry.date) || normalizeImportedDate(entry.meet) || normalizeImportedDate(entry.season);
   if (!normalizedDate) return null;
-  const normalizedResult = String(entry.result || '').trim();
-  if (!normalizedResult || !isResultLike(normalizedResult)) return null;
-  if (normalizeEventName(normalizedResult) === event) return null;
-  if (!isValidMarkForEvent(event, normalizedResult)) return null;
+  const normalizedResult = String(entry.result || entry.mark || '').trim();
+  if (!normalizedResult) return null;
+  if (!isResultLike(normalizedResult) && Number.isNaN(parseNumeric(normalizedResult))) return null;
+  const normalizedEvent = event || normalizeEventName(entry.event || entry.session || '');
+  if (!normalizedEvent) return null;
+  if (normalizeEventName(normalizedResult) === normalizedEvent) return null;
+  if (isResultLike(normalizedResult) && !isValidMarkForEvent(normalizedEvent, normalizedResult)) return null;
   return {
     ...entry,
-    event,
+    event: normalizedEvent,
     result: normalizedResult,
     date: normalizedDate,
   };
