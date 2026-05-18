@@ -861,8 +861,9 @@ function convertMarkForDisplay(eventName, mark) {
 
 function normalizeImportedDate(value) {
   const raw = String(value || '').trim();
-  if (!isDateLike(raw)) return '';
-  const normalizedInput = raw
+  const dateSnippet = extractDateSnippet(raw);
+  if (!dateSnippet) return '';
+  const normalizedInput = dateSnippet
     .replace(/(\b[A-Za-z]{3,}\s+\d{1,2})-\d{1,2}(,\s*\d{4})/i, '$1$2')
     .replace(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{2,4})/, '$1/$2/$4');
   const parsed = new Date(normalizedInput);
@@ -871,6 +872,20 @@ function normalizeImportedDate(value) {
   const currentYear = new Date().getUTCFullYear();
   if (year < 2010 || year > currentYear + 1) return '';
   return parsed.toISOString().split('T')[0];
+}
+
+function extractDateSnippet(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const textRange = raw.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{4}\b/i);
+  if (textRange) return textRange[0];
+  const slashRange = raw.match(/\b\d{1,2}\/\d{1,2}-\d{1,2}\/\d{2,4}\b/);
+  if (slashRange) return slashRange[0];
+  const slashDate = raw.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
+  if (slashDate) return slashDate[0];
+  const dashDate = raw.match(/\b\d{1,2}-\d{1,2}-\d{2,4}\b/);
+  if (dashDate) return dashDate[0];
+  return '';
 }
 
 function isValidMarkForEvent(eventToken, markToken) {
@@ -919,8 +934,7 @@ function cleanText(value) {
 }
 
 function isDateLike(value) {
-  return /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{1,2})?[/-]\d{2,4}\b/.test(value)
-    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{2,4}\b/i.test(value);
+  return Boolean(extractDateSnippet(value));
 }
 
 function isEventLike(value) {
