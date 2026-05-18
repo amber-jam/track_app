@@ -709,13 +709,25 @@ async function syncSiteEntries(source, profileUrl) {
   const normalizedMapped = mapped
     .map((entry) => normalizeImportedEntry(entry))
     .filter(Boolean);
+  const fallbackNormalized = !normalizedMapped.length && mapped.length
+    ? mapped
+      .map((entry) => {
+        const event = normalizeEventName(entry.event);
+        const result = String(entry.result || entry.mark || '').trim();
+        const date = normalizeImportedDate(entry.date || entry.meet || '');
+        if (!event || !isEventLike(event) || !result || !isResultLike(result) || !date) return null;
+        return { ...entry, event, result, date };
+      })
+      .filter(Boolean)
+    : [];
+  const finalMapped = normalizedMapped.length ? normalizedMapped : fallbackNormalized;
   console.log({
     source,
     tablesFound: doc.querySelectorAll('table').length,
     parsedBeforeFilter,
-    parsedAfterFilter: normalizedMapped.length,
+    parsedAfterFilter: finalMapped.length,
   });
-  return normalizedMapped;
+  return finalMapped;
 }
 
 function parseTfrrsRows(doc, source) {
@@ -945,6 +957,8 @@ function isResultLike(value) {
   const text = String(value || '').trim().toLowerCase();
   const normalized = text
     .replace(/\([^)]*\)/g, '')
+    .replace(/\s*[aw]$/i, '')
+    .replace(/\s*[-+]?\d+(?:\.\d+)?\s*(m\/s)?$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (!text) return false;
