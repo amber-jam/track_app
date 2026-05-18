@@ -691,26 +691,33 @@ async function syncSiteEntries(source, profileUrl) {
     htmlLength: html.length,
     hasScriptTags: doc.querySelectorAll('script').length,
   });
-  let mapped = [];
-  if (source === 'tffrs') {
-    mapped = parseTfrrsRows(doc, source);
+  const tables = [...doc.querySelectorAll('table')];
+  console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
+  if (tables.length > 0) {
+    console.log('[syncSiteEntries] firstTablePreview', (tables[0].innerText || '').slice(0, 1000));
   } else {
-    const tables = [...doc.querySelectorAll('table')];
-    console.log(`[syncSiteEntries] source=${source} tablesFound=${tables.length} htmlLength=${html.length}`);
-    if (tables.length > 0) {
-      console.log('[syncSiteEntries] firstTablePreview', (tables[0].innerText || '').slice(0, 1000));
-    } else {
-      console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
-    }
-    const relevantTables = tables.length ? tables : [];
-    mapped = relevantTables.flatMap((table) => parsePerformanceTable(table, source));
-    if (!mapped.length) {
-      mapped = tables.flatMap((table) => parseResultTable(table, source));
-    }
-    if (!mapped.length) {
-      mapped = parseFallbackFromText(doc.body?.innerText || '', source);
-    }
+    console.log('[syncSiteEntries] no tables found. script tags:', doc.querySelectorAll('script').length);
   }
+
+  let mapped = source === 'tffrs' ? parseTfrrsRows(doc, source) : [];
+  const parserCounts = { source, tfrrsRows: mapped.length, performanceTables: 0, resultTables: 0, fallbackText: 0 };
+
+  if (!mapped.length) {
+    const performanceMapped = tables.flatMap((table) => parsePerformanceTable(table, source));
+    parserCounts.performanceTables = performanceMapped.length;
+    mapped = performanceMapped;
+  }
+  if (!mapped.length) {
+    const resultMapped = tables.flatMap((table) => parseResultTable(table, source));
+    parserCounts.resultTables = resultMapped.length;
+    mapped = resultMapped;
+  }
+  if (!mapped.length) {
+    const fallbackMapped = parseFallbackFromText(doc.body?.innerText || '', source);
+    parserCounts.fallbackText = fallbackMapped.length;
+    mapped = fallbackMapped;
+  }
+  console.log('[syncSiteEntries] parserCounts', parserCounts);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
   const parsedBeforeFilter = mapped.length;
   const normalizedMapped = mapped
@@ -769,14 +776,11 @@ function parseTfrrsRows(doc, source) {
     const eventToken = extractEventTokenFromCells(cells, validEvents);
     if (!eventToken) return;
 
-    const mark = cells.find((cell) =>
-      isResultLike(cell) &&
-      !isLikelyEventCodeValue(eventToken, cell) &&
-      isValidMarkForEvent(eventToken, cell)
-    );
-    if (!mark || !activeDate) return;
+    const mark = selectResultToken(cells, { resultIndex: -1, event: eventToken });
+    const normalizedDate = normalizeImportedDate(rowText) || activeDate;
+    if (!mark || !normalizedDate) return;
 
-    const year = new Date(activeDate).getUTCFullYear();
+    const year = new Date(normalizedDate).getUTCFullYear();
     parsed.push({
       id: crypto.randomUUID(),
       type: 'meet',
@@ -787,7 +791,7 @@ function parseTfrrsRows(doc, source) {
       converted: convertMarkForDisplay(eventToken, mark),
       wind: cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null,
       meet: activeMeet,
-      date: activeDate,
+      date: normalizedDate,
       year,
       season: activeSeason,
       createdAt: Date.now(),
@@ -898,6 +902,8 @@ function normalizeImportedDate(value) {
 function extractDateSnippet(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
+  const isoDate = raw.match(/\b\d{4}-\d{1,2}-\d{1,2}\b/);
+  if (isoDate) return isoDate[0];
   const textRange = raw.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:-\d{1,2})?,?\s+\d{2,4}\b/i);
   if (textRange) return textRange[0];
   const slashRange = raw.match(/\b\d{1,2}\/\d{1,2}-\d{1,2}\/\d{2,4}\b/);
@@ -1025,13 +1031,28 @@ function parseResultTable(table, source) {
 function selectResultToken(cells, { resultIndex, event }) {
   const normalizedEvent = normalizeEventName(event);
   const candidates = [];
-  if (resultIndex >= 0 && cells[resultIndex]) candidates.push(cells[resultIndex]);
-  cells.forEach((cell) => {
-    if (!cell) return;
-    if (normalizeEventName(cell) === normalizedEvent) return;
-    if (isResultLike(cell) || !Number.isNaN(parseNumeric(cell))) candidates.push(cell);
-  });
-  return candidates.find((token) => normalizeEventName(token) !== normalizedEvent) || '';
+  const addCandidate = (cell, preferred = false) => {
+    if (!isSelectableResultToken(cell, normalizedEvent)) return;
+    if (preferred) candidates.unshift(cell);
+    else candidates.push(cell);
+  };
+
+  if (resultIndex >= 0 && cells[resultIndex]) addCandidate(cells[resultIndex], true);
+  cells.forEach((cell) => addCandidate(cell));
+
+  return candidates.find((token) => isValidMarkForEvent(normalizedEvent, token) || isResultLike(token)) || '';
+}
+
+function isSelectableResultToken(value, normalizedEvent) {
+  const token = cleanText(String(value || ''));
+  if (!token) return false;
+  if (isDateLike(token)) return false;
+  if (/^(pr|sb|sr|fr|so|jr|senior|freshman|sophomore|junior|indoor|outdoor)$/i.test(token)) return false;
+  if (/invite|classic|relay|championship|meet|open|university|college|school|state|regional|national/i.test(token)) return false;
+  if (/^(19|20)\d{2}$/.test(token)) return false;
+  if (normalizeEventName(token) === normalizedEvent) return false;
+  if (isLikelyEventCodeValue(normalizedEvent, token)) return false;
+  return isResultLike(token) || !Number.isNaN(parseNumeric(token));
 }
 
 function findIndex(cells, pattern) {
@@ -1157,20 +1178,21 @@ function importedEntryKey(entry) {
 
 function normalizeImportedEntry(entry) {
   console.log('normalize check:', entry);
-  const event = normalizeEventName(entry.event);
-  const normalizedDate = normalizeImportedDate(entry.date) || normalizeImportedDate(entry.meet) || normalizeImportedDate(entry.season);
-  if (!normalizedDate) return null;
+  const normalizedEvent = normalizeEventName(entry.event || entry.session || '') || 'Unknown Event';
+  const normalizedDate = normalizeImportedDate(entry.date) || normalizeImportedDate(entry.meet) || normalizeImportedDate(entry.season) || String(entry.date || '').trim();
   const normalizedResult = String(entry.result || entry.mark || '').trim();
-  if (!normalizedResult) return null;
-  if (!isResultLike(normalizedResult) && Number.isNaN(parseNumeric(normalizedResult))) return null;
-  const normalizedEvent = event || normalizeEventName(entry.event || entry.session || '');
-  if (!normalizedEvent) return null;
-  if (normalizeEventName(normalizedResult) === normalizedEvent) return null;
-  if (isResultLike(normalizedResult) && !isValidMarkForEvent(normalizedEvent, normalizedResult)) return null;
+
+  if (!normalizedResult) {
+    console.warn('[normalizeImportedEntry] missing result, preserving entry for diagnostics:', entry);
+  }
+  if (normalizeEventName(normalizedResult) === normalizedEvent) {
+    console.warn('[normalizeImportedEntry] result matches event token, preserving for diagnostics:', entry);
+  }
+
   return {
     ...entry,
     event: normalizedEvent,
-    result: normalizedResult,
+    result: normalizedResult || entry.result || entry.mark || '',
     date: normalizedDate,
   };
 }
