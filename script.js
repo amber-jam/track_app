@@ -50,6 +50,7 @@ entryDateInput.value = today;
 let entryType = 'meet';
 let rawEntries = loadData();
 let entries = rawEntries;
+let lastSyncDiagnostics = [];
 let profiles = loadProfiles();
 let preferences = loadPreferences();
 let chartPoints = [];
@@ -98,6 +99,7 @@ profileForm.addEventListener('submit', (event) => {
 syncProfilesBtn.addEventListener('click', async () => {
   profileMessage.textContent = 'Syncing profile data...';
   const syncedEntries = [];
+  lastSyncDiagnostics = [];
 
   try {
     if (profiles.tffrs) {
@@ -112,7 +114,12 @@ syncProfilesBtn.addEventListener('click', async () => {
     }
 
     if (!syncedEntries.length) {
-      profileMessage.textContent = 'No meet results were found during sync.';
+      const diag = lastSyncDiagnostics
+        .map((item) => `${item.source.toUpperCase()}: tables=${item.tablesFound}, mapped=${item.parsedBeforeFilter}, kept=${item.parsedAfterFilter}`)
+        .join(' | ');
+      profileMessage.textContent = diag
+        ? `No meet results were found during sync. Diagnostics -> ${diag}`
+        : 'No meet results were found during sync.';
       return;
     }
 
@@ -721,12 +728,14 @@ async function syncSiteEntries(source, profileUrl) {
       .filter(Boolean)
     : [];
   const finalMapped = normalizedMapped.length ? normalizedMapped : fallbackNormalized;
-  console.log({
+  const diagnostic = {
     source,
     tablesFound: doc.querySelectorAll('table').length,
     parsedBeforeFilter,
     parsedAfterFilter: finalMapped.length,
-  });
+  };
+  console.log(diagnostic);
+  lastSyncDiagnostics.push(diagnostic);
   return finalMapped;
 }
 
