@@ -238,7 +238,7 @@ function isInvalidStoredMeetResult(entry) {
   const result = String(entry.result || entry.mark || '').trim();
   if (!result) return true;
   if (isPlacementToken(result)) return true;
-  return normalizeEventName(result) === normalizeEventName(entry.event);
+  return isSameEventToken(result, entry.event);
 }
 
 function persist() {
@@ -311,7 +311,7 @@ function renderSummary() {
     bestPREvent.textContent = 'No results yet';
     return;
   }
-  bestPR.textContent = top.result;
+  bestPR.textContent = formatResultDisplay(top);
   bestPREvent.textContent = `${top.event} • ${formatDate(top.date)}${preferences.mainEvent ? ' • Main Event' : ''}`;
 }
 
@@ -395,7 +395,7 @@ function renderPRBoard() {
         <span>${entry.event}</span>
         <span class="red">PR</span>
       </div>
-      <p class="feed-result red">${entry.result}</p>
+      <p class="feed-result red">${formatResultDisplay(entry)}</p>
       <p class="micro">${formatDate(entry.date)} • ${entry.source.toUpperCase()}${entry.season ? ` • ${entry.season}` : ''}</p>
     `;
     prBoard.appendChild(li);
@@ -420,7 +420,7 @@ function renderFeeds() {
         <span>${entry.event}</span>
         <span>${formatDate(entry.date)}</span>
       </div>
-      <p class="feed-result">${entry.result}</p>
+      <p class="feed-result">${formatResultDisplay(entry)}</p>
       <p class="micro">${buildMeetMeta(entry)}</p>
       <div class="entry-actions">
         <button type="button" class="ghost action-btn" data-action="edit" data-id="${entry.id}">Edit</button>
@@ -633,6 +633,15 @@ function formatDate(value) {
   });
 }
 
+
+function formatResultDisplay(entry) {
+  const rawResult = String(entry?.result || '').trim();
+  const converted = String(entry?.converted || '').trim();
+  if (!rawResult) return '—';
+  if (!converted || converted === rawResult) return rawResult;
+  return `${rawResult} (${converted})`;
+}
+
 function roundedRect(context, x, y, width, height, radius) {
   context.beginPath();
   context.moveTo(x + radius, y);
@@ -648,7 +657,7 @@ function onChartHover(event) {
   const point = nearestPoint(event);
   if (!point) return;
 
-  chartTooltip.textContent = `${point.entry.event}: ${point.entry.result} (${formatDate(point.entry.date)})`;
+  chartTooltip.textContent = `${point.entry.event}: ${formatResultDisplay(point.entry)} (${formatDate(point.entry.date)})`;
   chartTooltip.classList.remove('hidden');
   chartTooltip.style.left = `${point.x}px`;
   chartTooltip.style.top = `${point.y}px`;
@@ -951,6 +960,16 @@ function isValidMarkForEvent(eventToken, markToken) {
   return true;
 }
 
+function canonicalEventToken(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isSameEventToken(a, b) {
+  const left = canonicalEventToken(normalizeEventName(a));
+  const right = canonicalEventToken(normalizeEventName(b));
+  return Boolean(left) && left === right;
+}
+
 function isLikelyEventCodeValue(eventToken, markToken) {
   const event = normalizeEventName(eventToken);
   const mark = String(markToken || '').trim().toLowerCase();
@@ -1025,7 +1044,7 @@ function parseResultTable(table, source) {
       if (isResultLike(event)) return null;
       if (/^pr$/i.test(event)) return null;
       if (!isResultLike(result) && Number.isNaN(parseNumeric(result))) return null;
-      if (normalizeEventName(event) === normalizeEventName(result)) return null;
+      if (isSameEventToken(event, result)) return null;
       if (isResultLike(result) && !isValidMarkForEvent(event, result)) return null;
 
       const normalizedDate = normalizeImportedDate(date);
@@ -1067,7 +1086,7 @@ function isSelectableResultToken(value, normalizedEvent) {
   if (/^(pr|sb|sr|fr|so|jr|senior|freshman|sophomore|junior|indoor|outdoor)$/i.test(token)) return false;
   if (/invite|classic|relay|championship|meet|open|university|college|school|state|regional|national/i.test(token)) return false;
   if (/^(19|20)\d{2}$/.test(token)) return false;
-  if (normalizeEventName(token) === normalizedEvent) return false;
+  if (isSameEventToken(token, normalizedEvent)) return false;
   if (isLikelyEventCodeValue(normalizedEvent, token)) return false;
   return isResultLike(token) || !Number.isNaN(parseNumeric(token));
 }
@@ -1212,7 +1231,7 @@ function normalizeImportedEntry(entry) {
     console.warn('[normalizeImportedEntry] placement token is not a result, dropping entry:', entry);
     return null;
   }
-  if (normalizeEventName(normalizedResult) === normalizedEvent) {
+  if (isSameEventToken(normalizedResult, normalizedEvent)) {
     console.warn('[normalizeImportedEntry] result matches event token, dropping entry:', entry);
     return null;
   }
@@ -1253,9 +1272,9 @@ function normalizeEventName(value) {
   if (raw.includes('mile') && raw.includes('2')) return '3200m';
   if (raw.includes('mile')) return '1600m';
   if (raw === '5k' || raw.includes('5k')) return '5000m';
-  if (raw === '60h' || raw.includes('60h')) return '60H';
-  if (raw === '100h' || raw.includes('100h')) return '100H';
-  if (raw === '110h' || raw.includes('110h')) return '110H';
+  if (raw === '60h' || raw.includes('60h') || raw.includes('60mh')) return '60H';
+  if (raw === '100h' || raw.includes('100h') || raw.includes('100mh')) return '100H';
+  if (raw === '110h' || raw.includes('110h') || raw.includes('110mh')) return '110H';
   if (raw === '300h' || raw.includes('300h')) return '300H';
   if (raw === '400h' || raw.includes('400h')) return '400H';
   if (raw.includes('pent')) return 'PENT';
