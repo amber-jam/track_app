@@ -445,11 +445,21 @@ function renderFeeds() {
 
 }
 
+function normalizeWindToken(value) {
+  const token = cleanText(String(value || '')).replace(/[()]/g, '');
+  if (!token) return '';
+  if (!/^[+-]?\d(?:\.\d)?$/.test(token)) return '';
+  const numeric = Number(token);
+  if (Number.isNaN(numeric) || numeric < -9.9 || numeric > 9.9) return '';
+  return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(1)}`;
+}
+
 function buildMeetMeta(entry) {
   const tokens = [entry.source?.toUpperCase() || 'MANUAL'];
   if (entry.meet) tokens.push(entry.meet);
   if (entry.season) tokens.push(entry.season);
-  if (entry.wind) tokens.push(`Wind ${entry.wind}`);
+  const wind = normalizeWindToken(entry.wind);
+  if (wind) tokens.push(`Wind ${wind}`);
   return tokens.join(' • ');
 }
 
@@ -744,21 +754,19 @@ async function syncSiteEntries(source, profileUrl) {
   console.log('[syncSiteEntries] parserCounts', parserCounts);
   console.log('[syncSiteEntries] finalMappedResults', mapped);
   const parsedBeforeFilter = mapped.length;
-  const normalizedMapped = mapped
-    .map((entry) => normalizeImportedEntry(entry))
+  const strictMapped = mapped
+    .map((entry) => normalizeImportedEntry(entry, { strict: true }))
     .filter(Boolean);
-  const fallbackNormalized = !normalizedMapped.length && mapped.length
-    ? mapped
-      .map((entry) => {
-        const event = normalizeEventName(entry.event);
-        const result = String(entry.result || entry.mark || '').trim();
-        const date = normalizeImportedDate(entry.date || entry.meet || '');
-        if (!event || !isEventLike(event) || !result || !isResultLike(result) || !date) return null;
-        return { ...entry, event, result, date };
-      })
-      .filter(Boolean)
-    : [];
-  const finalMapped = normalizedMapped.length ? normalizedMapped : fallbackNormalized;
+  const fallbackMapped = mapped
+    .map((entry) => normalizeImportedEntry(entry, { strict: false }))
+    .filter(Boolean);
+  const finalMapped = strictMapped.length ? strictMapped : fallbackMapped;
+  console.log('[syncSiteEntries] normalizationCounts', {
+    source,
+    strictCount: strictMapped.length,
+    fallbackCount: fallbackMapped.length,
+    finalCount: finalMapped.length,
+  });
   const diagnostic = {
     source,
     tablesFound: doc.querySelectorAll('table').length,
@@ -813,7 +821,7 @@ function parseTfrrsRows(doc, source) {
       result: mark,
       mark,
       converted: convertMarkForDisplay(eventToken, mark),
-      wind: cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null,
+      wind: cells.map((cell) => normalizeWindToken(cell)).find(Boolean) || null,
       meet: activeMeet,
       date: normalizedDate,
       year,
@@ -869,7 +877,7 @@ function parsePerformanceTable(table, source) {
     const markToken = cells.find((cell) => isResultLike(cell) && isValidMarkForEvent(eventToken, cell));
     if (!eventToken || !markToken) return;
 
-    const windToken = cells.find((cell) => /^\(?[-+]?\d+(\.\d+)?\)?$/.test(cell)) || null;
+    const windToken = cells.map((cell) => normalizeWindToken(cell)).find(Boolean) || null;
     const event = normalizeEventName(eventToken);
     const mark = markToken;
     const converted = convertMarkForDisplay(event, mark);
@@ -1217,22 +1225,21 @@ function importedEntryKey(entry) {
   return `${event}|${mark}|${date}|${source}`;
 }
 
-function normalizeImportedEntry(entry) {
+function normalizeImportedEntry(entry, options = { strict: true }) {
   console.log('normalize check:', entry);
+  const strict = options?.strict !== false;
   const normalizedEvent = normalizeEventName(entry.event || entry.session || '') || 'Unknown Event';
   const normalizedDate = normalizeImportedDate(entry.date) || normalizeImportedDate(entry.meet) || normalizeImportedDate(entry.season) || String(entry.date || '').trim();
   const normalizedResult = String(entry.result || entry.mark || '').trim();
 
   if (!normalizedResult) {
-    console.warn('[normalizeImportedEntry] missing result, dropping entry:', entry);
+    if (strict) return null;
     return null;
   }
-  if (isPlacementToken(normalizedResult)) {
-    console.warn('[normalizeImportedEntry] placement token is not a result, dropping entry:', entry);
-    return null;
-  }
-  if (isSameEventToken(normalizedResult, normalizedEvent)) {
-    console.warn('[normalizeImportedEntry] result matches event token, dropping entry:', entry);
+  if (strict && isPlacementToken(normalizedResult)) return null;
+  if (strict && isSameEventToken(normalizedResult, normalizedEvent)) return null;
+
+  if (strict && /\b(meters?|hurdles?|jump|put|relay)\b/i.test(normalizedResult) && !isResultLike(normalizedResult)) {
     return null;
   }
 
