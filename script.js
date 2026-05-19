@@ -222,10 +222,23 @@ function loadData() {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const sanitized = parsed.filter((entry) => !isInvalidStoredMeetResult(entry));
+    if (sanitized.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return [];
   }
+}
+
+function isInvalidStoredMeetResult(entry) {
+  if (entry?.type !== 'meet') return false;
+  const result = String(entry.result || entry.mark || '').trim();
+  if (!result) return true;
+  if (isPlacementToken(result)) return true;
+  return normalizeEventName(result) === normalizeEventName(entry.event);
 }
 
 function persist() {
@@ -586,6 +599,8 @@ function isFieldEvent(eventName) {
 function parseNumeric(value) {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return NaN;
+
+  if (isPlacementToken(text)) return NaN;
 
   const time = text.match(/(\d+):(\d+(?:\.\d+)?)/);
   if (time) return Number(time[1]) * 60 + Number(time[2]);
@@ -977,6 +992,7 @@ function isResultLike(value) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!text) return false;
+  if (isPlacementToken(text)) return false;
   if (/^(19|20)\d{2}$/.test(text)) return false;
   if (/^\d{4}\s*(indoor|outdoor)?$/.test(text)) return false;
   if (text.includes('outdoor') || text.includes('indoor')) return false;
@@ -1046,6 +1062,7 @@ function selectResultToken(cells, { resultIndex, event }) {
 function isSelectableResultToken(value, normalizedEvent) {
   const token = cleanText(String(value || ''));
   if (!token) return false;
+  if (isPlacementToken(token)) return false;
   if (isDateLike(token)) return false;
   if (/^(pr|sb|sr|fr|so|jr|senior|freshman|sophomore|junior|indoor|outdoor)$/i.test(token)) return false;
   if (/invite|classic|relay|championship|meet|open|university|college|school|state|regional|national/i.test(token)) return false;
@@ -1053,6 +1070,11 @@ function isSelectableResultToken(value, normalizedEvent) {
   if (normalizeEventName(token) === normalizedEvent) return false;
   if (isLikelyEventCodeValue(normalizedEvent, token)) return false;
   return isResultLike(token) || !Number.isNaN(parseNumeric(token));
+}
+
+function isPlacementToken(value) {
+  const token = String(value || '').trim().toLowerCase();
+  return /^\d{1,3}(?:st|nd|rd|th)(?:\s*\([^)]*\))?$/.test(token) || /^\d{1,3}(?:st|nd|rd|th)?\s*\([fpqh]\)$/.test(token);
 }
 
 function findIndex(cells, pattern) {
@@ -1183,10 +1205,16 @@ function normalizeImportedEntry(entry) {
   const normalizedResult = String(entry.result || entry.mark || '').trim();
 
   if (!normalizedResult) {
-    console.warn('[normalizeImportedEntry] missing result, preserving entry for diagnostics:', entry);
+    console.warn('[normalizeImportedEntry] missing result, dropping entry:', entry);
+    return null;
+  }
+  if (isPlacementToken(normalizedResult)) {
+    console.warn('[normalizeImportedEntry] placement token is not a result, dropping entry:', entry);
+    return null;
   }
   if (normalizeEventName(normalizedResult) === normalizedEvent) {
-    console.warn('[normalizeImportedEntry] result matches event token, preserving for diagnostics:', entry);
+    console.warn('[normalizeImportedEntry] result matches event token, dropping entry:', entry);
+    return null;
   }
 
   return {
